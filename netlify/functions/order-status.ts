@@ -7,13 +7,13 @@ const supabase = supabaseUrl && supabaseServiceKey ? createClient(supabaseUrl, s
 
 export const handler: Handler = async (event) => {
   if (!supabase) return { statusCode: 500, body: JSON.stringify({ error: 'Not configured' }) }
-  const sessionId = event.queryStringParameters?.session_id
-  if (!sessionId) return { statusCode: 400, body: JSON.stringify({ error: 'Missing session_id' }) }
+  const orderId = event.queryStringParameters?.order_id || event.queryStringParameters?.session_id
+  if (!orderId) return { statusCode: 400, body: JSON.stringify({ error: 'Missing order_id' }) }
 
   const { data: order, error } = await supabase
     .from('orders')
     .select('id,status,fulfillment_method,total_cents,pickup_discount_cents,delivery_fee_cents')
-    .eq('stripe_session_id', sessionId)
+    .eq('id', orderId)
     .maybeSingle()
 
   if (error || !order) return { statusCode: 404, body: JSON.stringify({ error: 'Order not found' }) }

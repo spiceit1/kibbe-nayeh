@@ -19,6 +19,7 @@ export interface Settings {
   pickup_discount_value: number
   delivery_fee_cents: number
   currency: string
+  venmo_address?: string | null
 }
 
 export interface CustomerPayload {

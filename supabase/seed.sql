@@ -2,13 +2,14 @@
 insert into admin_users (email) values ('admin@example.com')
 on conflict (email) do nothing;
 
-insert into settings (id, pickup_discount_enabled, pickup_discount_type, pickup_discount_value, delivery_fee_cents, currency)
-values (1, true, 'percent', 10, 800, 'USD')
+insert into settings (id, pickup_discount_enabled, pickup_discount_type, pickup_discount_value, delivery_fee_cents, currency, venmo_address)
+values (1, true, 'percent', 10, 800, 'USD', 'your-venmo-username')
 on conflict (id) do update set pickup_discount_enabled = excluded.pickup_discount_enabled,
   pickup_discount_type = excluded.pickup_discount_type,
   pickup_discount_value = excluded.pickup_discount_value,
   delivery_fee_cents = excluded.delivery_fee_cents,
-  currency = excluded.currency;
+  currency = excluded.currency,
+  venmo_address = excluded.venmo_address;
 
 insert into product_sizes (name, unit_label, price_cents, available_qty, is_active, sort_order)
 values

@@ -28,6 +28,7 @@ create table if not exists settings (
   pickup_discount_value integer default 0,
   delivery_fee_cents integer default 0,
   currency text default 'USD',
+  venmo_address text,
   updated_at timestamptz default now()
 );
 
@@ -155,6 +156,9 @@ create policy "Service role inserts customers" on customers
 create policy "Admins manage customers" on customers
   for update using (is_admin()) with check (is_admin());
 
+create policy "Public can read orders by id" on orders
+  for select using (true);
+
 create policy "Admins read orders" on orders
   for select using (is_admin());
 
@@ -163,6 +167,9 @@ create policy "Service role inserts orders" on orders
 
 create policy "Admins update orders" on orders
   for update using (is_admin()) with check (is_admin());
+
+create policy "Public can read order items" on order_items
+  for select using (true);
 
 create policy "Admins read order items" on order_items
   for select using (is_admin());

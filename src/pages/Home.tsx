@@ -58,16 +58,34 @@ export default function HomePage() {
   const handleCheckout = async () => {
     setError(null)
     setMessage(null)
+    
+    // Check for missing required fields
+    const missingFields: string[] = []
+    
     if (!selectedSize) {
       setError('Please select a size.')
       return
     }
-    if (!form.name || !form.email || !form.phone) {
-      setError('Please add your contact information.')
-      return
+    
+    // Check contact information
+    if (!form.name?.trim()) missingFields.push('Full name')
+    if (!form.email?.trim()) missingFields.push('Email')
+    if (!form.phone?.trim()) missingFields.push('Phone')
+    
+    // Check delivery address if needed
+    if (form.fulfillment_method === 'delivery') {
+      if (!form.address?.trim()) missingFields.push('Street address')
+      if (!form.city?.trim()) missingFields.push('City')
+      if (!form.state?.trim()) missingFields.push('State')
+      if (!form.postal_code?.trim()) missingFields.push('Postal code')
     }
-    if (form.fulfillment_method === 'delivery' && (!form.address || !form.city || !form.postal_code)) {
-      setError('Delivery requires a full address.')
+    
+    if (missingFields.length > 0) {
+      if (missingFields.length === 1) {
+        setError(`Please fill in: ${missingFields[0]}`)
+      } else {
+        setError(`Please fill in: ${missingFields.join(', ')}`)
+      }
       return
     }
 
@@ -88,17 +106,19 @@ export default function HomePage() {
         },
         notes: form.notes,
       }
-      const res = await fetch('/.netlify/functions/create-checkout', {
+      const res = await fetch('/.netlify/functions/create-venmo-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Unable to start checkout')
-      if (data.url) {
-        window.location.href = data.url
+      if (!res.ok) throw new Error(data.error || 'Unable to create order')
+      
+      // Redirect to Venmo payment page
+      if (data.order_id && data.venmo_address) {
+        window.location.href = `/order-confirmation?order_id=${data.order_id}&venmo=${encodeURIComponent(data.venmo_address)}&total=${data.total_cents}&currency=${data.currency}`
       } else {
-        setMessage('Checkout started. Please follow the payment link.')
+        throw new Error('Missing order or Venmo information')
       }
     } catch (err) {
       setError((err as Error).message)
@@ -285,10 +305,10 @@ export default function HomePage() {
                 </div>
               )}
               <Button className="w-full" size="lg" onClick={handleCheckout} disabled={loading}>
-                {loading ? 'Starting checkout...' : 'Checkout with Stripe'}
+                {loading ? 'Creating order...' : 'Place order'}
               </Button>
               <p className="text-xs text-midnight/60">
-                Secure payments by Stripe. Venmo via Stripe is enabled when available. You’ll receive email + SMS once payment clears.
+                Pay via Venmo. You'll receive payment instructions after placing your order.
               </p>
             </CardContent>
           </Card>
