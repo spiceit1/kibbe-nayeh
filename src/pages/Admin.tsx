@@ -96,7 +96,6 @@ export default function AdminPage() {
   const [forgotPasswordEmail, setForgotPasswordEmail] = useState('')
   const [tempPasswordSent, setTempPasswordSent] = useState(false)
   const [tempPassword, setTempPassword] = useState('')
-  const [generatedTempPassword, setGeneratedTempPassword] = useState('') // Store the generated password to display
   const [newPasswordFromTemp, setNewPasswordFromTemp] = useState('')
   const [confirmPasswordFromTemp, setConfirmPasswordFromTemp] = useState('')
   const [sendingTempPassword, setSendingTempPassword] = useState(false)
@@ -282,9 +281,6 @@ export default function AdminPage() {
         showToast('Email not found', 'error')
         return
       }
-
-      // Store the generated password to display in UI
-      setGeneratedTempPassword(tempPass)
 
       // Send temporary password via email
       try {
@@ -752,7 +748,6 @@ export default function AdminPage() {
                   setForgotPasswordEmail('')
                   setTempPasswordSent(false)
                   setTempPassword('')
-                  setGeneratedTempPassword('')
                   setNewPasswordFromTemp('')
                   setConfirmPasswordFromTemp('')
                   setError(null)
@@ -787,17 +782,6 @@ export default function AdminPage() {
                 </>
               ) : (
                 <>
-                  {generatedTempPassword && (
-                    <div className="rounded-lg border-2 border-pomegranate bg-pomegranate/5 p-4 mb-4">
-                      <p className="text-sm font-semibold text-midnight mb-2">Your temporary password:</p>
-                      <p className="text-2xl font-mono font-bold text-pomegranate tracking-wider text-center">
-                        {generatedTempPassword}
-                      </p>
-                      <p className="text-xs text-midnight/60 mt-2 text-center">
-                        If you didn't receive the email, check your spam folder or use this password above.
-                      </p>
-                    </div>
-                  )}
                   <div className="space-y-2">
                     <Label>Enter temporary password</Label>
                     <Input
@@ -806,7 +790,7 @@ export default function AdminPage() {
                       onChange={(e) => setTempPassword(e.target.value)}
                       placeholder="Enter temporary password"
                     />
-                    <p className="text-xs text-midnight/60">Check your email (and spam folder) for the temporary password</p>
+                    <p className="text-xs text-midnight/60">Check your email for the temporary password</p>
                   </div>
                   <div className="space-y-2">
                     <Label>Create new password</Label>
