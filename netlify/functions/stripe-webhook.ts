@@ -120,14 +120,22 @@ export const handler: Handler = async (event) => {
 
     // Notifications
     if (resend && metadata.customer_email) {
-      await resend.emails.send({
-        from: 'Kibbeh Nayeh <orders@kibbehnayeh.com>',
+      console.log('Sending Stripe order confirmation email to:', metadata.customer_email)
+      const emailResult = await resend.emails.send({
+        from: 'Kibbeh Nayeh <orders@notifications.anemoneking.com>',
         to: metadata.customer_email,
         subject: 'Your Kibbeh Nayeh order is confirmed',
         html: `<p>Thank you, ${metadata.customer_name}.</p>
           <p>Order: ${metadata.size_name} x ${metadata.quantity} — ${metadata.fulfillment_method}</p>
           <p>Total: ${(totals.total / 100).toFixed(2)} ${settings?.currency || 'USD'}</p>`,
       })
+      
+      console.log('Stripe order confirmation email result:', emailResult)
+      if (emailResult.error) {
+        console.error('Resend API error for Stripe order confirmation:', emailResult.error)
+      } else {
+        console.log('Stripe order confirmation email sent successfully, ID:', emailResult.data?.id)
+      }
     }
     if (sms && twilioFrom && metadata.customer_phone) {
       await sms.messages.create({

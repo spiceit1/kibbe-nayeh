@@ -12,20 +12,30 @@ export function Layout({ children }: { children: React.ReactNode }) {
   ]
 
   const handleOrderNow = () => {
-    if (location.pathname === '/') {
-      // Already on home page, scroll to order section
+    const scrollToOrder = () => {
       const orderSection = document.getElementById('order')
       if (orderSection) {
-        orderSection.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        // Get header height to account for sticky header
+        const header = document.querySelector('header')
+        const headerHeight = header ? header.offsetHeight : 80
+        const elementPosition = orderSection.getBoundingClientRect().top + window.pageYOffset
+        const offsetPosition = elementPosition - headerHeight - 20 // 20px extra padding
+        
+        window.scrollTo({
+          top: offsetPosition,
+          behavior: 'smooth'
+        })
       }
+    }
+
+    if (location.pathname === '/') {
+      // Already on home page, scroll to order section
+      scrollToOrder()
     } else {
       // Navigate to home page, then scroll after a brief delay
       navigate('/')
       setTimeout(() => {
-        const orderSection = document.getElementById('order')
-        if (orderSection) {
-          orderSection.scrollIntoView({ behavior: 'smooth', block: 'start' })
-        }
+        scrollToOrder()
       }, 100)
     }
   }

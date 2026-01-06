@@ -125,8 +125,9 @@ export const handler: Handler = async (event) => {
         ? `${payload.customer.address}, ${payload.customer.city}, ${payload.customer.state} ${payload.customer.postal_code}`
         : null
 
+      console.log('Sending order confirmation email to:', payload.customer.email)
       try {
-        await resend.emails.send({
+        const emailResult = await resend.emails.send({
           from: 'Kibbeh Nayeh <orders@notifications.anemoneking.com>',
           to: payload.customer.email,
           subject: `Order Confirmation #${orderNumber} - Kibbeh Nayeh`,
@@ -165,6 +166,14 @@ export const handler: Handler = async (event) => {
             </div>
           `,
         })
+
+        console.log('Order confirmation email result:', emailResult)
+        
+        if (emailResult.error) {
+          console.error('Resend API error for order confirmation:', emailResult.error)
+        } else {
+          console.log('Order confirmation email sent successfully, ID:', emailResult.data?.id)
+        }
       } catch (emailError) {
         console.error('Error sending order confirmation email:', emailError)
         // Don't fail the order if email fails
