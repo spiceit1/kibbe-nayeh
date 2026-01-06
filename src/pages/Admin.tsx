@@ -10,7 +10,7 @@ import { Badge } from '../components/ui/badge'
 import { Textarea } from '../components/ui/textarea'
 import { formatCurrency } from '../lib/pricing'
 import type { OrderStatus, ProductSize, Settings } from '../lib/types'
-import { CartesianGrid, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 type OrderItem = {
   size_name: string
@@ -650,10 +650,14 @@ export default function AdminPage() {
       }
     })
     
-    // Convert to array format for pie chart
-    return Object.entries(sizeCounts).map(([name, value]) => ({
+    // Color palette for different products
+    const colors = ['#8B1538', '#4a5f2a', '#c1440e', '#6B7280', '#059669', '#DC2626', '#7C3AED', '#EA580C']
+    
+    // Convert to array format for pie chart with colors
+    return Object.entries(sizeCounts).map(([name, value], index) => ({
       name,
       value,
+      fill: colors[index % colors.length], // Cycle through colors
     }))
   }, [filteredOrders])
 
@@ -1127,18 +1131,22 @@ export default function AdminPage() {
                     data={sizeBreakdown} 
                     dataKey="value" 
                     nameKey="name" 
-                    cx="40%" 
+                    cx="50%" 
                     cy="50%" 
-                    outerRadius={70} 
-                    label={({ name, percent }) => `${name}: ${percent ? (percent * 100).toFixed(0) : 0}%`}
+                    outerRadius={60} 
+                    label={({ percent }) => `${percent ? (percent * 100).toFixed(0) : 0}%`}
                     labelLine={false}
-                  />
+                  >
+                    {sizeBreakdown.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.fill} />
+                    ))}
+                  </Pie>
                   <Tooltip />
                   <Legend 
                     layout="vertical" 
                     verticalAlign="middle" 
                     align="right"
-                    wrapperStyle={{ paddingLeft: '20px' }}
+                    wrapperStyle={{ paddingLeft: '40px', paddingRight: '20px' }}
                   />
                 </PieChart>
               </ResponsiveContainer>

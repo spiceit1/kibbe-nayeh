@@ -3,10 +3,13 @@
   publish = "dist"
   functions = "netlify/functions"
 
-[[redirects]]
-  from = "/*"
-  to = "/index.html"
-  status = 200
+# SPA redirect - commented out for dev mode
+# Netlify dev should proxy to Vite which handles routing
+# Uncomment this for production builds:
+# [[redirects]]
+#   from = "/*"
+#   to = "/index.html"
+#   status = 200
 
 [functions]
   node_bundler = "esbuild"
