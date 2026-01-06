@@ -283,11 +283,9 @@ export default function AdminPage() {
       }
 
       // In production, this would be sent via email
-      // For now, we'll show it in the UI (this is just for development)
+      // For now, we'll just show a success message
       setTempPasswordSent(true)
       showToast('Temporary password generated. Check your email.', 'success')
-      // Note: In production, remove this alert and send via email
-      alert(`Temporary password: ${tempPass}\n\n(In production, this would be sent via email)`)
     } catch (err) {
       setError((err as Error).message)
       showToast(`Error: ${(err as Error).message}`, 'error')
