@@ -14,9 +14,36 @@ as $$
   );
 $$;
 
+-- Function to verify admin password
+create or replace function verify_admin_password(admin_email text, provided_password text)
+returns boolean
+security definer
+set search_path = public
+language plpgsql
+as $$
+declare
+  stored_hash text;
+begin
+  select password_hash into stored_hash
+  from admin_users
+  where lower(email) = lower(admin_email);
+  
+  if stored_hash is null then
+    return false;
+  end if;
+  
+  -- Simple comparison (for production, consider using pgcrypto for hashing)
+  return stored_hash = provided_password;
+end;
+$$;
+
+-- Grant execute permission on the function
+grant execute on function verify_admin_password(text, text) to anon, authenticated;
+
 create table if not exists admin_users (
   id uuid primary key default gen_random_uuid(),
   email text unique not null,
+  password_hash text,
   auth_user_id uuid,
   created_at timestamptz default now()
 );
@@ -191,4 +218,11 @@ create policy "Admins manage ingredient stock" on ingredient_stock
 
 create policy "Admins manage order status history" on order_status_history
   for all using (is_admin()) with check (is_admin());
+
+-- Admin users policies
+create policy "Admins can read admin_users" on admin_users
+  for select using (is_admin());
+
+create policy "Admins can update own password" on admin_users
+  for update using (is_admin()) with check (is_admin());
 

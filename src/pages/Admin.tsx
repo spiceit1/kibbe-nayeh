@@ -70,6 +70,7 @@ type Toast = {
 
 export default function AdminPage() {
   const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [sessionReady, setSessionReady] = useState(false)
   const [loading, setLoading] = useState(false)
   const [sizes, setSizes] = useState<ProductSize[]>([])
@@ -86,6 +87,20 @@ export default function AdminPage() {
   const [dateRange, setDateRange] = useState<'all' | 'today' | 'week' | 'month' | 'custom'>('all')
   const [customStartDate, setCustomStartDate] = useState<string>('')
   const [customEndDate, setCustomEndDate] = useState<string>('')
+  const [showPasswordReset, setShowPasswordReset] = useState(false)
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [resettingPassword, setResettingPassword] = useState(false)
+  const [showForgotPassword, setShowForgotPassword] = useState(false)
+  const [forgotPasswordEmail, setForgotPasswordEmail] = useState('')
+  const [tempPasswordSent, setTempPasswordSent] = useState(false)
+  const [tempPassword, setTempPassword] = useState('')
+  const [newPasswordFromTemp, setNewPasswordFromTemp] = useState('')
+  const [confirmPasswordFromTemp, setConfirmPasswordFromTemp] = useState('')
+  const [sendingTempPassword, setSendingTempPassword] = useState(false)
+  const [savingNewPassword, setSavingNewPassword] = useState(false)
+  const [showPasswordSetConfirmation, setShowPasswordSetConfirmation] = useState(false)
   
   const showToast = (message: string, type: 'saving' | 'success' | 'error') => {
     const id = Math.random().toString(36).substring(7)
@@ -106,24 +121,12 @@ export default function AdminPage() {
   }
 
   useEffect(() => {
-    const client = supabase
-    if (!client) return
-    const init = async () => {
-      const { data } = await client.auth.getSession()
-      if (data.session) {
-        setSessionReady(true)
-        fetchDashboard()
-      }
-      client.auth.onAuthStateChange((event, currentSession) => {
-        if (currentSession) {
-          setSessionReady(true)
-          fetchDashboard()
-        } else if (event === 'SIGNED_OUT') {
-          setSessionReady(false)
-        }
-      })
+    // Check if user is already logged in (stored in sessionStorage)
+    const storedEmail = sessionStorage.getItem('admin_email')
+    if (storedEmail) {
+      setSessionReady(true)
+      fetchDashboard()
     }
-    init()
   }, [])
 
   const fetchDashboard = async () => {
@@ -198,40 +201,247 @@ export default function AdminPage() {
       setError('Supabase is not configured. Check your environment variables.')
       return
     }
+    
+    if (!email || !password) {
+      setError('Please enter both email and password.')
+      return
+    }
+    
     setLoading(true)
     setError(null)
     try {
-      console.log('📧 Requesting magic link for:', email)
-      console.log('🔑 Supabase URL:', import.meta.env.VITE_SUPABASE_URL)
-      console.log('🔑 Has anon key:', !!import.meta.env.VITE_SUPABASE_ANON_KEY)
-      
-      const { data, error: signInError } = await client.auth.signInWithOtp({
-        email,
-        options: { emailRedirectTo: `${window.location.origin}/admin` },
+      // Verify password using RPC function
+      const { data, error: verifyError } = await client.rpc('verify_admin_password', {
+        admin_email: email,
+        provided_password: password,
       })
       
-      if (signInError) {
-        console.error('❌ Magic link error:', signInError)
-        // Provide more helpful error messages
-        if (signInError.message.includes('Invalid API key') || signInError.message.includes('JWT')) {
-          setError('Invalid Supabase API key. Please check your VITE_SUPABASE_ANON_KEY in .env and restart the dev server.')
-        } else {
-          setError(signInError.message)
-        }
-        throw signInError
+      if (verifyError) {
+        console.error('❌ Password verification error:', verifyError)
+        setError('Invalid email or password.')
+        showToast('Invalid email or password', 'error')
+        return
       }
       
-      console.log('✅ Magic link request successful:', data)
-      showToast(`Magic link sent to ${email}. Check your inbox (and spam folder).`, 'success')
+      if (data === true) {
+        // Store email in sessionStorage to maintain session
+        sessionStorage.setItem('admin_email', email)
+        setSessionReady(true)
+        fetchDashboard()
+        showToast('✓ Login successful', 'success')
+      } else {
+        setError('Invalid email or password.')
+        showToast('Invalid email or password', 'error')
+      }
     } catch (err) {
       console.error('❌ Login error:', err)
       const errorMessage = (err as Error).message
-      if (!errorMessage.includes('Invalid API key')) {
-        setError(errorMessage)
-      }
+      setError(errorMessage)
       showToast(`Error: ${errorMessage}`, 'error')
     } finally {
       setLoading(false)
+    }
+  }
+  
+  const handleLogout = () => {
+    sessionStorage.removeItem('admin_email')
+    setSessionReady(false)
+    setEmail('')
+    setPassword('')
+  }
+
+  const handleSendTempPassword = async () => {
+    if (!forgotPasswordEmail) {
+      setError('Please enter your email address.')
+      return
+    }
+
+    const client = supabase
+    if (!client) {
+      setError('Supabase is not configured.')
+      return
+    }
+
+    setSendingTempPassword(true)
+    setError(null)
+
+    try {
+      const { data: tempPass, error: tempError } = await client.rpc('generate_temp_password', {
+        admin_email: forgotPasswordEmail,
+      })
+
+      if (tempError) {
+        setError(tempError.message)
+        showToast(`Error: ${tempError.message}`, 'error')
+        return
+      }
+
+      if (!tempPass) {
+        setError('Email not found or error generating temporary password.')
+        showToast('Email not found', 'error')
+        return
+      }
+
+      // In production, this would be sent via email
+      // For now, we'll show it in the UI (this is just for development)
+      setTempPasswordSent(true)
+      showToast('Temporary password generated. Check your email.', 'success')
+      // Note: In production, remove this alert and send via email
+      alert(`Temporary password: ${tempPass}\n\n(In production, this would be sent via email)`)
+    } catch (err) {
+      setError((err as Error).message)
+      showToast(`Error: ${(err as Error).message}`, 'error')
+    } finally {
+      setSendingTempPassword(false)
+    }
+  }
+
+  const handleSaveNewPassword = async () => {
+    if (!tempPassword || !newPasswordFromTemp || !confirmPasswordFromTemp) {
+      setError('Please fill in all fields.')
+      showToast('Please fill in all fields', 'error')
+      return
+    }
+
+    if (newPasswordFromTemp !== confirmPasswordFromTemp) {
+      setError('New passwords do not match.')
+      showToast('New passwords do not match', 'error')
+      return
+    }
+
+    if (newPasswordFromTemp.length < 6) {
+      setError('New password must be at least 6 characters.')
+      showToast('New password must be at least 6 characters', 'error')
+      return
+    }
+
+    const client = supabase
+    if (!client) {
+      setError('Supabase is not configured.')
+      return
+    }
+
+    setSavingNewPassword(true)
+    setError(null)
+
+    try {
+      const { data: success, error: resetError } = await client.rpc('reset_password_with_temp', {
+        admin_email: forgotPasswordEmail,
+        temp_password: tempPassword,
+        new_password: newPasswordFromTemp,
+      })
+
+      if (resetError) {
+        setError(resetError.message)
+        showToast(`Error: ${resetError.message}`, 'error')
+        return
+      }
+
+      if (!success) {
+        setError('Invalid or expired temporary password.')
+        showToast('Invalid or expired temporary password', 'error')
+        return
+      }
+
+      // Clear form and close forgot password modal
+      setShowForgotPassword(false)
+      setTempPasswordSent(false)
+      setTempPassword('')
+      setNewPasswordFromTemp('')
+      setConfirmPasswordFromTemp('')
+      
+      // Set email in state and sessionStorage
+      const adminEmail = forgotPasswordEmail
+      setEmail(adminEmail)
+      setPassword(newPasswordFromTemp)
+      sessionStorage.setItem('admin_email', adminEmail)
+      
+      // Clear forgot password email state
+      setForgotPasswordEmail('')
+      
+      // Show confirmation modal
+      setShowPasswordSetConfirmation(true)
+      
+      // Wait 3 seconds, then log in and redirect to dashboard
+      setTimeout(async () => {
+        setShowPasswordSetConfirmation(false)
+        setSessionReady(true)
+        await fetchDashboard()
+        showToast('✓ Password saved and logged in successfully', 'success')
+      }, 3000)
+    } catch (err) {
+      setError((err as Error).message)
+      showToast(`Error: ${(err as Error).message}`, 'error')
+    } finally {
+      setSavingNewPassword(false)
+    }
+  }
+
+  const handlePasswordReset = async () => {
+    if (!newPassword || !confirmPassword || !currentPassword) {
+      setError('Please fill in all password fields.')
+      showToast('Please fill in all password fields', 'error')
+      return
+    }
+
+    if (newPassword !== confirmPassword) {
+      setError('New passwords do not match.')
+      showToast('New passwords do not match', 'error')
+      return
+    }
+
+    if (newPassword.length < 6) {
+      setError('New password must be at least 6 characters.')
+      showToast('New password must be at least 6 characters', 'error')
+      return
+    }
+
+    const client = supabase
+    if (!client) {
+      setError('Supabase is not configured.')
+      return
+    }
+
+    const adminEmail = sessionStorage.getItem('admin_email')
+    if (!adminEmail) {
+      setError('Session expired. Please log in again.')
+      handleLogout()
+      return
+    }
+
+    setResettingPassword(true)
+    setError(null)
+
+    try {
+      // Use RPC function to update password (verifies current password and updates)
+      const { data: success, error: updateError } = await client.rpc('update_admin_password', {
+        admin_email: adminEmail,
+        current_password: currentPassword,
+        new_password: newPassword,
+      })
+
+      if (updateError) {
+        setError(updateError.message)
+        showToast(`Error: ${updateError.message}`, 'error')
+        return
+      }
+
+      if (!success) {
+        setError('Current password is incorrect.')
+        showToast('Current password is incorrect', 'error')
+        return
+      }
+
+      showToast('✓ Password updated successfully', 'success')
+      setShowPasswordReset(false)
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
+    } catch (err) {
+      setError((err as Error).message)
+      showToast(`Error: ${(err as Error).message}`, 'error')
+    } finally {
+      setResettingPassword(false)
     }
   }
 
@@ -437,20 +647,186 @@ export default function AdminPage() {
 
   if (!sessionReady) {
     return (
-      <div className="space-y-6 max-w-lg">
-        <div>
-          <h1 className="font-display text-3xl text-midnight">Admin login</h1>
-          <p className="text-midnight/80">Only whitelisted admin emails can sign in.</p>
+      <>
+        <div className="space-y-6 max-w-lg">
+          <div>
+            <h1 className="font-display text-3xl text-midnight">Admin login</h1>
+            <p className="text-midnight/80">Enter your email and password to access the admin portal.</p>
+          </div>
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <Label>Email</Label>
+              <Input 
+                type="email"
+                value={email} 
+                onChange={(e) => setEmail(e.target.value)} 
+                placeholder="admin@example.com"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && email && password) {
+                    handleLogin()
+                  }
+                }}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Password</Label>
+              <Input 
+                type="password"
+                value={password} 
+                onChange={(e) => setPassword(e.target.value)} 
+                placeholder="Enter your password"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && email && password) {
+                    handleLogin()
+                  }
+                }}
+              />
+            </div>
+            <Button onClick={handleLogin} disabled={loading || !email || !password} className="w-full">
+              {loading ? 'Logging in...' : 'Log in'}
+            </Button>
+            {error && <p className="text-sm text-red-700">{error}</p>}
+            <div className="text-center">
+              <button
+                type="button"
+                onClick={() => {
+                  setError(null)
+                  setShowForgotPassword(true)
+                }}
+                className="text-sm text-pomegranate hover:underline"
+              >
+                Forgot password?
+              </button>
+            </div>
+          </div>
         </div>
-        <div className="space-y-3">
-          <Label>Email</Label>
-          <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@kibbehnayeh.com" />
-          <Button onClick={handleLogin} disabled={loading || !email}>
-            {loading ? 'Sending link...' : 'Send magic link'}
-          </Button>
-          {error && <p className="text-sm text-red-700">{error}</p>}
+
+        {/* Forgot Password Modal */}
+        {showForgotPassword && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          onClick={() => {
+            setShowForgotPassword(false)
+            setForgotPasswordEmail('')
+            setTempPasswordSent(false)
+            setTempPassword('')
+            setNewPasswordFromTemp('')
+            setConfirmPasswordFromTemp('')
+            setError(null)
+          }}
+        >
+          <div 
+            className="bg-white rounded-lg shadow-xl max-w-md w-full m-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-6 border-b border-neutral-200">
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-display text-midnight">Forgot Password</h2>
+                <Button variant="outline" onClick={() => {
+                  setShowForgotPassword(false)
+                  setForgotPasswordEmail('')
+                  setTempPasswordSent(false)
+                  setTempPassword('')
+                  setNewPasswordFromTemp('')
+                  setConfirmPasswordFromTemp('')
+                  setError(null)
+                }}>×</Button>
+              </div>
+            </div>
+            <div className="p-6 space-y-4">
+              {!tempPasswordSent ? (
+                <>
+                  <div className="space-y-2">
+                    <Label>Email</Label>
+                    <Input
+                      type="email"
+                      value={forgotPasswordEmail}
+                      onChange={(e) => setForgotPasswordEmail(e.target.value)}
+                      placeholder="Enter your admin email"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && forgotPasswordEmail) {
+                          handleSendTempPassword()
+                        }
+                      }}
+                    />
+                  </div>
+                  {error && <p className="text-sm text-red-700">{error}</p>}
+                  <Button
+                    className="w-full"
+                    onClick={handleSendTempPassword}
+                    disabled={sendingTempPassword || !forgotPasswordEmail}
+                  >
+                    {sendingTempPassword ? 'Sending...' : 'Send temporary password'}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    <Label>Enter temporary password</Label>
+                    <Input
+                      type="text"
+                      value={tempPassword}
+                      onChange={(e) => setTempPassword(e.target.value)}
+                      placeholder="Enter temporary password"
+                    />
+                    <p className="text-xs text-midnight/60">Check your email for the temporary password</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Create new password</Label>
+                    <Input
+                      type="password"
+                      value={newPasswordFromTemp}
+                      onChange={(e) => setNewPasswordFromTemp(e.target.value)}
+                      placeholder="Enter new password (min 6 characters)"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Confirm new password</Label>
+                    <Input
+                      type="password"
+                      value={confirmPasswordFromTemp}
+                      onChange={(e) => setConfirmPasswordFromTemp(e.target.value)}
+                      placeholder="Confirm new password"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && tempPassword && newPasswordFromTemp && confirmPasswordFromTemp) {
+                          handleSaveNewPassword()
+                        }
+                      }}
+                    />
+                  </div>
+                  {error && <p className="text-sm text-red-700">{error}</p>}
+                  <Button
+                    className="w-full"
+                    onClick={handleSaveNewPassword}
+                    disabled={savingNewPassword || !tempPassword || !newPasswordFromTemp || !confirmPasswordFromTemp}
+                  >
+                    {savingNewPassword ? 'Saving...' : 'Save'}
+                  </Button>
+                </>
+              )}
+            </div>
+          </div>
         </div>
-      </div>
+        )}
+
+        {/* Password Set Confirmation Modal */}
+        {showPasswordSetConfirmation && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+            <div className="bg-white rounded-lg shadow-xl max-w-md w-full m-4 p-6">
+              <div className="text-center space-y-4">
+                <div className="inline-block h-12 w-12 rounded-full bg-green-100 flex items-center justify-center">
+                  <span className="text-2xl text-green-600">✓</span>
+                </div>
+                <h2 className="text-2xl font-display text-midnight">New password is set</h2>
+                <p className="text-midnight/80">Logging you in...</p>
+                <div className="flex justify-center">
+                  <div className="inline-block h-2 w-2 bg-pomegranate rounded-full animate-pulse"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </>
     )
   }
 
@@ -461,8 +837,101 @@ export default function AdminPage() {
           <p className="text-sm font-semibold uppercase tracking-wide text-pomegranate">Admin portal</p>
           <h1 className="font-display text-3xl text-midnight">Dashboard</h1>
         </div>
-        <Button variant="outline" onClick={() => supabase?.auth.signOut()}>Sign out</Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => setShowPasswordReset(true)}>Reset Password</Button>
+          <Button variant="outline" onClick={handleLogout}>
+            Sign out: {sessionStorage.getItem('admin_email') || email}
+          </Button>
+        </div>
       </div>
+
+      {/* Password Reset Modal */}
+      {showPasswordReset && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          onClick={() => {
+            setShowPasswordReset(false)
+            setCurrentPassword('')
+            setNewPassword('')
+            setConfirmPassword('')
+            setError(null)
+          }}
+        >
+          <div 
+            className="bg-white rounded-lg shadow-xl max-w-md w-full m-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-6 border-b border-neutral-200">
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-display text-midnight">Reset Password</h2>
+                <Button variant="outline" onClick={() => {
+                  setShowPasswordReset(false)
+                  setCurrentPassword('')
+                  setNewPassword('')
+                  setConfirmPassword('')
+                  setError(null)
+                }}>×</Button>
+              </div>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="space-y-2">
+                <Label>Current Password</Label>
+                <Input
+                  type="password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  placeholder="Enter current password"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>New Password</Label>
+                <Input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="Enter new password (min 6 characters)"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Confirm New Password</Label>
+                <Input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Confirm new password"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && currentPassword && newPassword && confirmPassword) {
+                      handlePasswordReset()
+                    }
+                  }}
+                />
+              </div>
+              {error && <p className="text-sm text-red-700">{error}</p>}
+              <div className="flex gap-2 pt-2">
+                <Button
+                  className="flex-1"
+                  onClick={handlePasswordReset}
+                  disabled={resettingPassword || !currentPassword || !newPassword || !confirmPassword}
+                >
+                  {resettingPassword ? 'Updating...' : 'Update Password'}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowPasswordReset(false)
+                    setCurrentPassword('')
+                    setNewPassword('')
+                    setConfirmPassword('')
+                    setError(null)
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
