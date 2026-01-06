@@ -3,9 +3,14 @@
   publish = "dist"
   functions = "netlify/functions"
 
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
 [functions]
   node_bundler = "esbuild"
-  external_node_modules = ["stripe", "resend", "twilio", "@supabase/supabase-js"]
+  external_node_modules = ["resend", "twilio", "@supabase/supabase-js"]
 
 [dev]
   command = "npm run dev"
