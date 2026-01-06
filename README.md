@@ -1,4 +1,6 @@
-# Kibbeh Nayeh — Single-product ecommerce
+# Kibbeh Nayeh
+
+<!-- Trigger redeploy --> — Single-product ecommerce
 
 Production-ready storefront + admin portal for a single product, built with Vite + React + TypeScript, TailwindCSS (with shadcn-style primitives), Supabase, Netlify Functions, Stripe, Resend, and Twilio.
 
