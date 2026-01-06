@@ -1,16 +1,21 @@
 import { Handler } from '@netlify/functions'
 import { createClient } from '@supabase/supabase-js'
 import { Resend } from 'resend'
+import twilio from 'twilio'
 import type { CheckoutPayload } from '../../src/lib/types'
 import { calculateOrderTotals } from '../../src/lib/pricing'
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 const resendKey = process.env.RESEND_API_KEY
+const twilioSid = process.env.TWILIO_ACCOUNT_SID
+const twilioAuth = process.env.TWILIO_AUTH_TOKEN
+const twilioFrom = process.env.TWILIO_FROM_NUMBER
 const siteUrl = process.env.SITE_URL || process.env.URL || 'http://localhost:8888'
 
 const supabase = supabaseUrl && supabaseServiceKey ? createClient(supabaseUrl, supabaseServiceKey) : null
 const resend = resendKey ? new Resend(resendKey) : null
+const sms = twilioSid && twilioAuth ? twilio(twilioSid, twilioAuth) : null
 
 export const handler: Handler = async (event) => {
   if (!supabase) {
@@ -179,31 +184,31 @@ export const handler: Handler = async (event) => {
         // Don't fail the order if email fails
       }
 
-      // Send SMS via email-to-SMS (free, but carrier-dependent)
-      if (payload.customer.phone) {
+      // Send SMS via Twilio
+      if (sms && twilioFrom && payload.customer.phone) {
         try {
           const phoneNumber = payload.customer.phone.replace(/\D/g, '') // Remove non-digits
+          console.log('Attempting to send SMS via Twilio to phone:', phoneNumber)
+          
           if (phoneNumber.length === 10) {
-            // Try common email-to-SMS gateways (free but not guaranteed to work)
-            const smsGateways = [
-              `${phoneNumber}@txt.att.net`,      // AT&T
-              `${phoneNumber}@vtext.com`,        // Verizon
-              `${phoneNumber}@tmomail.net`,      // T-Mobile
-              `${phoneNumber}@messaging.sprintpcs.com`, // Sprint
-            ]
+            const smsMessage = `Kibbeh Nayeh order #${orderNumber} confirmed. ${size.name} x${payload.quantity}. Pay $${formattedTotal} to ${settings.venmo_address} via Venmo.`
             
-            // Send to first gateway (most likely to work)
-            await resend.emails.send({
-              from: 'Kibbeh Nayeh <orders@notifications.anemoneking.com>',
-              to: smsGateways[0], // Try AT&T first
-              subject: '', // SMS doesn't need subject
-              text: `Kibbeh Nayeh order #${orderNumber} confirmed. ${size.name} x${payload.quantity}. Pay $${formattedTotal} to ${settings.venmo_address} via Venmo.`,
+            const twilioResult = await sms.messages.create({
+              from: twilioFrom,
+              to: `+1${phoneNumber}`, // Add US country code
+              body: smsMessage,
             })
+            
+            console.log('Twilio SMS sent successfully, SID:', twilioResult.sid)
+          } else {
+            console.warn('Invalid phone number format for SMS:', payload.customer.phone)
           }
         } catch (smsError) {
-          console.error('Error sending SMS:', smsError)
+          console.error('Error sending SMS via Twilio:', smsError)
           // SMS is optional, don't fail if it doesn't work
         }
+      } else if (payload.customer.phone) {
+        console.warn('Twilio not configured - SMS will not be sent. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_FROM_NUMBER environment variables.')
       }
     }
 
