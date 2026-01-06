@@ -5,23 +5,32 @@ const resendKey = process.env.RESEND_API_KEY
 const resend = resendKey ? new Resend(resendKey) : null
 
 export const handler: Handler = async (event) => {
+  console.log('send-temp-password-email function called')
+  console.log('RESEND_API_KEY exists:', !!process.env.RESEND_API_KEY)
+  
   if (event.httpMethod !== 'POST') {
+    console.log('Method not allowed:', event.httpMethod)
     return { statusCode: 405, body: JSON.stringify({ error: 'Method not allowed' }) }
   }
 
   if (!resend) {
-    return { statusCode: 500, body: JSON.stringify({ error: 'Email service not configured' }) }
+    console.error('Resend not configured - RESEND_API_KEY missing or invalid')
+    return { statusCode: 500, body: JSON.stringify({ error: 'Email service not configured. RESEND_API_KEY is missing or invalid.' }) }
   }
 
   try {
-    const { email, tempPassword } = JSON.parse(event.body || '{}')
+    const body = JSON.parse(event.body || '{}')
+    const { email, tempPassword } = body
+    console.log('Parsed request:', { email, tempPasswordExists: !!tempPassword })
 
     if (!email || !tempPassword) {
+      console.error('Missing required fields:', { email: !!email, tempPassword: !!tempPassword })
       return { statusCode: 400, body: JSON.stringify({ error: 'Email and tempPassword required' }) }
     }
 
-    await resend.emails.send({
-      from: 'Kibbeh Nayeh <noreply@kibbehnayeh.com>',
+    console.log('Sending email via Resend to:', email)
+    const result = await resend.emails.send({
+      from: 'Kibbeh Nayeh <onboarding@resend.dev>', // Use Resend's default domain for testing
       to: email,
       subject: 'Your temporary password for Kibbeh Nayeh Admin',
       html: `
@@ -36,9 +45,19 @@ export const handler: Handler = async (event) => {
       `,
     })
 
+    console.log('Resend API response:', result)
+    
+    if (result.error) {
+      console.error('Resend API error:', result.error)
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ error: result.error.message || 'Failed to send email' }),
+      }
+    }
+
     return {
       statusCode: 200,
-      body: JSON.stringify({ success: true, message: 'Temporary password email sent' }),
+      body: JSON.stringify({ success: true, message: 'Temporary password email sent', id: result.data?.id }),
     }
   } catch (error) {
     console.error('Error sending temp password email:', error)

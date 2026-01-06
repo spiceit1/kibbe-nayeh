@@ -285,17 +285,25 @@ export default function AdminPage() {
       // Send temporary password via email
       try {
         const siteUrl = window.location.origin
+        console.log('Sending temp password email to:', forgotPasswordEmail)
         const response = await fetch(`${siteUrl}/.netlify/functions/send-temp-password-email`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email: forgotPasswordEmail, tempPassword: tempPass }),
         })
         
+        const responseData = await response.json()
+        console.log('Email function response:', response.status, responseData)
+        
         if (!response.ok) {
-          console.error('Failed to send email, but password was generated')
+          console.error('Failed to send email:', responseData)
+          showToast(`Email failed: ${responseData.error || 'Unknown error'}`, 'error')
+        } else {
+          console.log('Email sent successfully')
         }
       } catch (emailError) {
         console.error('Error sending email:', emailError)
+        showToast(`Email error: ${(emailError as Error).message}`, 'error')
         // Don't fail the flow if email fails - password was still generated
       }
 
