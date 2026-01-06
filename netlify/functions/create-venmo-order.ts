@@ -1,13 +1,16 @@
 import { Handler } from '@netlify/functions'
 import { createClient } from '@supabase/supabase-js'
+import { Resend } from 'resend'
 import type { CheckoutPayload } from '../../src/lib/types'
 import { calculateOrderTotals } from '../../src/lib/pricing'
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+const resendKey = process.env.RESEND_API_KEY
 const siteUrl = process.env.SITE_URL || process.env.URL || 'http://localhost:8888'
 
 const supabase = supabaseUrl && supabaseServiceKey ? createClient(supabaseUrl, supabaseServiceKey) : null
+const resend = resendKey ? new Resend(resendKey) : null
 
 export const handler: Handler = async (event) => {
   if (!supabase) {
@@ -113,6 +116,87 @@ export const handler: Handler = async (event) => {
       .from('product_sizes')
       .update({ available_qty: Math.max(0, size.available_qty - payload.quantity) })
       .eq('id', size.id)
+
+    // Send order confirmation email
+    if (resend && payload.customer.email) {
+      const orderNumber = order.id.slice(0, 8).toUpperCase()
+      const formattedTotal = (totals.total / 100).toFixed(2)
+      const deliveryAddress = payload.fulfillment_method === 'delivery' 
+        ? `${payload.customer.address}, ${payload.customer.city}, ${payload.customer.state} ${payload.customer.postal_code}`
+        : null
+
+      try {
+        await resend.emails.send({
+          from: 'Kibbeh Nayeh <orders@kibbehnayeh.com>',
+          to: payload.customer.email,
+          subject: `Order Confirmation #${orderNumber} - Kibbeh Nayeh`,
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <h2 style="color: #8B1538;">Thank you for your order, ${payload.customer.name}!</h2>
+              <p>Your order has been received and is being processed.</p>
+              
+              <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                <h3 style="margin-top: 0;">Order #${orderNumber}</h3>
+                <p><strong>Item:</strong> ${size.name} x ${payload.quantity}</p>
+                <p><strong>Fulfillment:</strong> ${payload.fulfillment_method === 'delivery' ? 'Delivery' : 'Pickup'}</p>
+                ${deliveryAddress ? `<p><strong>Delivery Address:</strong><br>${deliveryAddress}</p>` : ''}
+                ${payload.notes ? `<p><strong>Notes:</strong> ${payload.notes}</p>` : ''}
+              </div>
+
+              <div style="background: #fff; border: 2px solid #8B1538; padding: 15px; border-radius: 8px; margin: 20px 0;">
+                <h3 style="color: #8B1538; margin-top: 0;">Payment Instructions</h3>
+                <p><strong>Please send payment via Venmo to:</strong></p>
+                <p style="font-size: 20px; font-weight: bold; color: #8B1538;">${settings.venmo_address}</p>
+                <p><strong>Amount:</strong> $${formattedTotal} ${settings.currency || 'USD'}</p>
+                <p style="color: #666; font-size: 12px;">Please include order number #${orderNumber} in your Venmo payment note.</p>
+              </div>
+
+              <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd;">
+                <p style="margin: 0;"><strong>Subtotal:</strong> $${(totals.base / 100).toFixed(2)}</p>
+                ${totals.pickupDiscount > 0 ? `<p style="margin: 0;"><strong>Pickup Discount:</strong> -$${(totals.pickupDiscount / 100).toFixed(2)}</p>` : ''}
+                ${totals.deliveryFee > 0 ? `<p style="margin: 0;"><strong>Delivery Fee:</strong> $${(totals.deliveryFee / 100).toFixed(2)}</p>` : ''}
+                <p style="margin: 10px 0 0 0; font-size: 18px; font-weight: bold;"><strong>Total:</strong> $${formattedTotal} ${settings.currency || 'USD'}</p>
+              </div>
+
+              <p style="margin-top: 30px; color: #666; font-size: 12px;">
+                Your order status will be updated once payment is received. 
+                You can view your order confirmation at: <a href="${siteUrl}/order-confirmation?order_id=${order.id}">${siteUrl}/order-confirmation?order_id=${order.id}</a>
+              </p>
+            </div>
+          `,
+        })
+      } catch (emailError) {
+        console.error('Error sending order confirmation email:', emailError)
+        // Don't fail the order if email fails
+      }
+
+      // Send SMS via email-to-SMS (free, but carrier-dependent)
+      if (payload.customer.phone) {
+        try {
+          const phoneNumber = payload.customer.phone.replace(/\D/g, '') // Remove non-digits
+          if (phoneNumber.length === 10) {
+            // Try common email-to-SMS gateways (free but not guaranteed to work)
+            const smsGateways = [
+              `${phoneNumber}@txt.att.net`,      // AT&T
+              `${phoneNumber}@vtext.com`,        // Verizon
+              `${phoneNumber}@tmomail.net`,      // T-Mobile
+              `${phoneNumber}@messaging.sprintpcs.com`, // Sprint
+            ]
+            
+            // Send to first gateway (most likely to work)
+            await resend.emails.send({
+              from: 'Kibbeh Nayeh <orders@kibbehnayeh.com>',
+              to: smsGateways[0], // Try AT&T first
+              subject: '', // SMS doesn't need subject
+              text: `Kibbeh Nayeh order #${orderNumber} confirmed. ${size.name} x${payload.quantity}. Pay $${formattedTotal} to ${settings.venmo_address} via Venmo.`,
+            })
+          }
+        } catch (smsError) {
+          console.error('Error sending SMS:', smsError)
+          // SMS is optional, don't fail if it doesn't work
+        }
+      }
+    }
 
     // Return order details with Venmo info
     return {
