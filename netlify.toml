@@ -3,33 +3,9 @@
   publish = "dist"
   functions = "netlify/functions"
 
-# SPA redirect - exclude Vite dev server paths
-# These paths are handled by Vite in dev mode
-[[redirects]]
-  from = "/src/*"
-  to = "/src/:splat"
-  status = 200
-  force = true
-
-[[redirects]]
-  from = "/@*"
-  to = "/@:splat"
-  status = 200
-  force = true
-
-[[redirects]]
-  from = "/node_modules/*"
-  to = "/node_modules/:splat"
-  status = 200
-  force = true
-
-# SPA redirect for all other routes (only in production)
-# In dev mode, Netlify dev proxies to Vite which handles routing
-[[redirects]]
-  from = "/*"
-  to = "/index.html"
-  status = 200
-  force = false
+# Redirects are handled by _redirects file in public/ folder
+# This file is copied to dist/ during build and only applies in production
+# In dev mode, Netlify dev proxies to Vite which handles routing without redirects
 
 [functions]
   node_bundler = "esbuild"

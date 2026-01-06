@@ -15,7 +15,7 @@ export const Switch = React.forwardRef<HTMLInputElement, SwitchProps>(({ classNa
       />
       <span
         className={cn(
-          'relative h-6 w-10 rounded-full border border-neutral-300 bg-neutral-200 transition-colors peer-checked:bg-pomegranate/80 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-pomegranate',
+          'relative h-6 w-10 rounded-full border border-neutral-300 bg-neutral-200 transition-colors peer-checked:bg-green-500 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-green-500',
           className,
         )}
       >

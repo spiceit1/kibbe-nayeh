@@ -9,7 +9,7 @@ import { Switch } from '../components/ui/switch'
 import { Badge } from '../components/ui/badge'
 import { Textarea } from '../components/ui/textarea'
 import { formatCurrency } from '../lib/pricing'
-import type { OrderStatus, ProductSize, Settings } from '../lib/types'
+import type { AdminUser, OrderStatus, ProductSize, Settings } from '../lib/types'
 import { CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 type OrderItem = {
@@ -101,6 +101,7 @@ export default function AdminPage() {
   const [sendingTempPassword, setSendingTempPassword] = useState(false)
   const [savingNewPassword, setSavingNewPassword] = useState(false)
   const [showPasswordSetConfirmation, setShowPasswordSetConfirmation] = useState(false)
+  const [currentUser, setCurrentUser] = useState<AdminUser | null>(null)
   
   const showToast = (message: string, type: 'saving' | 'success' | 'error') => {
     const id = Math.random().toString(36).substring(7)
@@ -135,6 +136,7 @@ export default function AdminPage() {
     setLoading(true)
     setError(null)
     try {
+      const adminEmail = sessionStorage.getItem('admin_email')
       const [sizeRes, settingsRes, orderRes, customerRes, ingredientRes] = await Promise.all([
         client.from('product_sizes').select('*').order('sort_order'),
         client.from('settings').select('*').limit(1).maybeSingle(),
@@ -167,6 +169,51 @@ export default function AdminPage() {
       if (ingredientRes.error) throw ingredientRes.error
       setSizes(sizeRes.data || [])
       setSettings(settingsRes.data as Settings)
+      
+      // Fetch user notification settings using RPC function (bypasses RLS)
+      if (adminEmail) {
+        try {
+          const { data: userData, error: userError } = await client.rpc('get_user_notifications', {
+            admin_email: adminEmail,
+          })
+          if (userError) {
+            console.error('Error fetching user notifications:', userError)
+            // Create default user object if RPC fails
+            setCurrentUser({
+              id: '',
+              email: adminEmail,
+              notification_email: null,
+              notification_phone: null,
+              email_notifications_enabled: false,
+              sms_notifications_enabled: false,
+            })
+          } else if (userData) {
+            setCurrentUser(userData as AdminUser)
+            console.log('Current user loaded:', userData)
+          } else {
+            // Create default user object if no data returned
+            setCurrentUser({
+              id: '',
+              email: adminEmail,
+              notification_email: null,
+              notification_phone: null,
+              email_notifications_enabled: false,
+              sms_notifications_enabled: false,
+            })
+          }
+        } catch (userErr) {
+          console.error('Error in get_user_notifications:', userErr)
+          // Create default user object on error
+          setCurrentUser({
+            id: '',
+            email: adminEmail,
+            notification_email: null,
+            notification_phone: null,
+            email_notifications_enabled: false,
+            sms_notifications_enabled: false,
+          })
+        }
+      }
       
       // Transform orders data to include nested relations
       const ordersData = (orderRes.data || []).map((order: any) => ({
@@ -496,9 +543,58 @@ export default function AdminPage() {
     updateSize(id, { [field]: value } as Partial<ProductSize>)
   }
 
+  const updateUserNotifications = async (updates: Partial<AdminUser>) => {
+    const client = supabase
+    if (!client || !currentUser) return
+    
+    const adminEmail = sessionStorage.getItem('admin_email')
+    if (!adminEmail) {
+      setError('Admin session not found')
+      return
+    }
+    
+    const toastId = showToast('Saving notification settings...', 'saving')
+    setError(null)
+    
+    // Optimistically update local state
+    setCurrentUser((prev) => prev ? { ...prev, ...updates } : null)
+    
+    // Use RPC function to update user notification settings
+    const { data: updatedUser, error: updateError } = await client.rpc('update_user_notifications', {
+      admin_email: adminEmail,
+      notification_updates: updates as any,
+    })
+    
+    if (updateError) {
+      removeToast(toastId)
+      setError(updateError.message)
+      showToast(`Error: ${updateError.message}`, 'error')
+      // Revert on error by refetching
+      const { data: userData } = await client.from('admin_users').select('id, email, notification_email, notification_phone, email_notifications_enabled, sms_notifications_enabled').eq('email', adminEmail).maybeSingle()
+      if (userData) setCurrentUser(userData as AdminUser)
+    } else {
+      removeToast(toastId)
+      showToast('✓ Notification settings saved', 'success')
+      // Use the returned data from the RPC function
+      if (updatedUser) {
+        setCurrentUser(updatedUser as AdminUser)
+      } else {
+        // Fallback: reload user from DB
+        const { data: userData } = await client.from('admin_users').select('id, email, notification_email, notification_phone, email_notifications_enabled, sms_notifications_enabled').eq('email', adminEmail).maybeSingle()
+        if (userData) setCurrentUser(userData as AdminUser)
+      }
+    }
+  }
+
   const updateSettings = async (updates: Partial<Settings>) => {
     const client = supabase
     if (!client || !settings) return
+    
+    const adminEmail = sessionStorage.getItem('admin_email')
+    if (!adminEmail) {
+      setError('Admin session not found')
+      return
+    }
     
     const toastId = showToast('Saving settings...', 'saving')
     setError(null)
@@ -506,16 +602,30 @@ export default function AdminPage() {
     // Optimistically update local state
     setSettings((prev) => prev ? { ...prev, ...updates } : null)
     
-    const { error: updateError } = await client.from('settings').update(updates).eq('id', settings.id)
+    // Use RPC function to update settings (bypasses RLS)
+    const { data: updatedSettings, error: updateError } = await client.rpc('update_settings', {
+      admin_email: adminEmail,
+      settings_updates: updates as any,
+    })
+    
     if (updateError) {
       removeToast(toastId)
       setError(updateError.message)
       showToast(`Error: ${updateError.message}`, 'error')
-      fetchDashboard() // Revert on error
+      // Revert on error by refetching
+      const { data: settingsData } = await client.from('settings').select('*').limit(1).maybeSingle()
+      if (settingsData) setSettings(settingsData as Settings)
     } else {
       removeToast(toastId)
       showToast('✓ Settings saved', 'success')
-      fetchDashboard()
+      // Use the returned data from the RPC function
+      if (updatedSettings) {
+        setSettings(updatedSettings as Settings)
+      } else {
+        // Fallback: reload settings from DB
+        const { data: settingsData } = await client.from('settings').select('*').limit(1).maybeSingle()
+        if (settingsData) setSettings(settingsData as Settings)
+      }
     }
   }
 
@@ -1243,6 +1353,87 @@ export default function AdminPage() {
           ))}
         </CardContent>
       </Card>
+
+      {currentUser && (
+        <Card>
+          <CardHeader>
+            <CardTitle>My Notifications</CardTitle>
+            <CardDescription>Configure your personal notification preferences</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2 md:col-span-2">
+              <Label>Notification email</Label>
+              <Input
+                type="email"
+                placeholder="your-email@example.com"
+                value={currentUser.notification_email ?? ''}
+                onChange={(e) => {
+                  setCurrentUser((prev) => prev ? {
+                    ...prev,
+                    notification_email: e.target.value
+                  } : null)
+                }}
+                onFocus={(e) => e.target.select()}
+                onBlur={(e) => {
+                  updateUserNotifications({ notification_email: e.target.value || null })
+                }}
+              />
+              <p className="text-xs text-midnight/60">Email address to receive order notifications</p>
+            </div>
+            <div className="space-y-2">
+              <Label>Email notifications</Label>
+              <div className="pt-2">
+                <Switch
+                  checked={currentUser.email_notifications_enabled ?? false}
+                  onChange={(e) => {
+                    const newValue = e.target.checked
+                    setCurrentUser((prev) => prev ? { ...prev, email_notifications_enabled: newValue } : null)
+                    updateUserNotifications({ email_notifications_enabled: newValue })
+                  }}
+                />
+              </div>
+              <p className="text-xs text-midnight/60">
+                {currentUser.email_notifications_enabled ? 'Email notifications enabled' : 'Email notifications disabled'}
+              </p>
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <Label>Notification phone</Label>
+              <Input
+                type="tel"
+                placeholder="(555) 123-4567"
+                value={currentUser.notification_phone ?? ''}
+                onChange={(e) => {
+                  setCurrentUser((prev) => prev ? {
+                    ...prev,
+                    notification_phone: e.target.value
+                  } : null)
+                }}
+                onFocus={(e) => e.target.select()}
+                onBlur={(e) => {
+                  updateUserNotifications({ notification_phone: e.target.value || null })
+                }}
+              />
+              <p className="text-xs text-midnight/60">Phone number to receive SMS notifications</p>
+            </div>
+            <div className="space-y-2">
+              <Label>SMS notifications</Label>
+              <div className="pt-2">
+                <Switch
+                  checked={currentUser.sms_notifications_enabled ?? false}
+                  onChange={(e) => {
+                    const newValue = e.target.checked
+                    setCurrentUser((prev) => prev ? { ...prev, sms_notifications_enabled: newValue } : null)
+                    updateUserNotifications({ sms_notifications_enabled: newValue })
+                  }}
+                />
+              </div>
+              <p className="text-xs text-midnight/60">
+                {currentUser.sms_notifications_enabled ? 'SMS notifications enabled' : 'SMS notifications disabled'}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {settings && (
         <Card>

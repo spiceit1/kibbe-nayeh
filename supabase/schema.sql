@@ -45,6 +45,10 @@ create table if not exists admin_users (
   email text unique not null,
   password_hash text,
   auth_user_id uuid,
+  notification_email text,
+  notification_phone text,
+  email_notifications_enabled boolean default false,
+  sms_notifications_enabled boolean default false,
   created_at timestamptz default now()
 );
 

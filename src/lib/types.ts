@@ -22,6 +22,15 @@ export interface Settings {
   venmo_address?: string | null
 }
 
+export interface AdminUser {
+  id: string
+  email: string
+  notification_email?: string | null
+  notification_phone?: string | null
+  email_notifications_enabled?: boolean
+  sms_notifications_enabled?: boolean
+}
+
 export interface CustomerPayload {
   name: string
   email: string

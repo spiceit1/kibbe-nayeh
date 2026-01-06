@@ -212,6 +212,112 @@ export const handler: Handler = async (event) => {
       }
     }
 
+    // Send notifications to all admins with notifications enabled
+    const orderNumber = order.id.slice(0, 8).toUpperCase()
+    const formattedTotal = (totals.total / 100).toFixed(2)
+    const deliveryAddress = payload.fulfillment_method === 'delivery' 
+      ? `${payload.customer.address}, ${payload.customer.city}, ${payload.customer.state} ${payload.customer.postal_code}`
+      : null
+
+    // Get all admins with notifications enabled
+    const { data: adminsWithNotifications } = await supabase
+      .from('admin_users')
+      .select('notification_email, notification_phone, email_notifications_enabled, sms_notifications_enabled')
+      .or('email_notifications_enabled.eq.true,sms_notifications_enabled.eq.true')
+
+    if (adminsWithNotifications && adminsWithNotifications.length > 0) {
+      // Send email notifications to all admins with email enabled
+      const emailRecipients = adminsWithNotifications
+        .filter(admin => admin.email_notifications_enabled && admin.notification_email)
+        .map(admin => admin.notification_email)
+        .filter((email): email is string => !!email)
+
+      if (resend && emailRecipients.length > 0) {
+        console.log('Sending admin notification emails to:', emailRecipients)
+        try {
+          // Send to all recipients
+          const emailPromises = emailRecipients.map(async (email) => {
+            try {
+              const result = await resend.emails.send({
+                from: 'Kibbeh Nayeh <orders@notifications.anemoneking.com>',
+                to: email,
+                subject: `New Order #${orderNumber} - ${payload.customer.name}`,
+                html: `
+                  <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                    <h2 style="color: #8B1538;">New Order Received</h2>
+                    <p>A new order has been placed and requires your attention.</p>
+                    
+                    <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                      <h3 style="margin-top: 0;">Order #${orderNumber}</h3>
+                      <p><strong>Customer:</strong> ${payload.customer.name}</p>
+                      <p><strong>Email:</strong> ${payload.customer.email}</p>
+                      <p><strong>Phone:</strong> ${payload.customer.phone}</p>
+                      <p><strong>Item:</strong> ${size.name} x ${payload.quantity}</p>
+                      <p><strong>Fulfillment:</strong> ${payload.fulfillment_method === 'delivery' ? 'Delivery' : 'Pickup'}</p>
+                      ${deliveryAddress ? `<p><strong>Delivery Address:</strong><br>${deliveryAddress}</p>` : ''}
+                      ${payload.notes ? `<p><strong>Customer Notes:</strong> ${payload.notes}</p>` : ''}
+                    </div>
+
+                    <div style="background: #fff; border: 2px solid #8B1538; padding: 15px; border-radius: 8px; margin: 20px 0;">
+                      <h3 style="color: #8B1538; margin-top: 0;">Order Summary</h3>
+                      <p style="margin: 0;"><strong>Subtotal:</strong> $${(totals.base / 100).toFixed(2)}</p>
+                      ${totals.pickupDiscount > 0 ? `<p style="margin: 0;"><strong>Pickup Discount:</strong> -$${(totals.pickupDiscount / 100).toFixed(2)}</p>` : ''}
+                      ${totals.deliveryFee > 0 ? `<p style="margin: 0;"><strong>Delivery Fee:</strong> $${(totals.deliveryFee / 100).toFixed(2)}</p>` : ''}
+                      <p style="margin: 10px 0 0 0; font-size: 18px; font-weight: bold;"><strong>Total:</strong> $${formattedTotal} ${settings.currency || 'USD'}</p>
+                      <p style="margin-top: 10px;"><strong>Payment:</strong> Venmo to ${settings.venmo_address}</p>
+                    </div>
+
+                    <p style="margin-top: 30px; color: #666; font-size: 12px;">
+                      View and manage this order in the admin portal.
+                    </p>
+                  </div>
+                `,
+              })
+              if (result.error) {
+                console.error(`Error sending email to ${email}:`, result.error)
+              } else {
+                console.log(`Admin notification email sent to ${email}, ID:`, result.data?.id)
+              }
+            } catch (emailError) {
+              console.error(`Error sending email to ${email}:`, emailError)
+            }
+          })
+          await Promise.all(emailPromises)
+        } catch (adminEmailError) {
+          console.error('Error sending admin notification emails:', adminEmailError)
+        }
+      }
+
+      // Send SMS notifications to all admins with SMS enabled
+      const smsRecipients = adminsWithNotifications
+        .filter(admin => admin.sms_notifications_enabled && admin.notification_phone)
+
+      if (sms && twilioFrom && smsRecipients.length > 0) {
+        console.log('Sending admin notification SMS to', smsRecipients.length, 'admins')
+        const smsPromises = smsRecipients.map(async (admin) => {
+          try {
+            const phoneNumber = admin.notification_phone?.replace(/\D/g, '') || ''
+            if (phoneNumber.length === 10) {
+              const adminSmsMessage = `New order #${orderNumber}: ${payload.customer.name} - ${size.name} x${payload.quantity} - $${formattedTotal} (${payload.fulfillment_method})`
+              
+              const twilioResult = await sms.messages.create({
+                from: twilioFrom,
+                to: `+1${phoneNumber}`,
+                body: adminSmsMessage,
+              })
+              
+              console.log(`Admin notification SMS sent to ${phoneNumber}, SID:`, twilioResult.sid)
+            } else {
+              console.warn('Invalid phone number format for SMS:', admin.notification_phone)
+            }
+          } catch (smsError) {
+            console.error('Error sending SMS to admin:', smsError)
+          }
+        })
+        await Promise.all(smsPromises)
+      }
+    }
+
     // Return order details with Venmo info
     return {
       statusCode: 200,
