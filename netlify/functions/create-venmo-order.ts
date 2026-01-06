@@ -127,7 +127,7 @@ export const handler: Handler = async (event) => {
 
       try {
         await resend.emails.send({
-          from: 'Kibbeh Nayeh <orders@kibbehnayeh.com>',
+          from: 'Kibbeh Nayeh <orders@notifications.anemoneking.com>',
           to: payload.customer.email,
           subject: `Order Confirmation #${orderNumber} - Kibbeh Nayeh`,
           html: `
@@ -185,7 +185,7 @@ export const handler: Handler = async (event) => {
             
             // Send to first gateway (most likely to work)
             await resend.emails.send({
-              from: 'Kibbeh Nayeh <orders@kibbehnayeh.com>',
+              from: 'Kibbeh Nayeh <orders@notifications.anemoneking.com>',
               to: smsGateways[0], // Try AT&T first
               subject: '', // SMS doesn't need subject
               text: `Kibbeh Nayeh order #${orderNumber} confirmed. ${size.name} x${payload.quantity}. Pay $${formattedTotal} to ${settings.venmo_address} via Venmo.`,

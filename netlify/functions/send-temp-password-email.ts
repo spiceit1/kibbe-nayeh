@@ -30,7 +30,7 @@ export const handler: Handler = async (event) => {
 
     console.log('Sending email via Resend to:', email)
     const result = await resend.emails.send({
-      from: 'Kibbeh Nayeh <onboarding@resend.dev>', // Use Resend's default domain for testing
+      from: 'Kibbeh Nayeh <noreply@notifications.anemoneking.com>',
       to: email,
       subject: 'Your temporary password for Kibbeh Nayeh Admin',
       html: `
