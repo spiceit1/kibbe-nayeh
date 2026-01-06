@@ -1,14 +1,34 @@
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Button } from './ui/button'
 import { cn } from '../lib/cn'
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation()
+  const navigate = useNavigate()
   const navItems = [
     { to: '/', label: 'Home' },
     { to: '/about', label: 'About' },
     { to: '/admin', label: 'Admin' },
   ]
+
+  const handleOrderNow = () => {
+    if (location.pathname === '/') {
+      // Already on home page, scroll to order section
+      const orderSection = document.getElementById('order')
+      if (orderSection) {
+        orderSection.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
+    } else {
+      // Navigate to home page, then scroll after a brief delay
+      navigate('/')
+      setTimeout(() => {
+        const orderSection = document.getElementById('order')
+        if (orderSection) {
+          orderSection.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }
+      }, 100)
+    }
+  }
 
   return (
     <div className="min-h-screen bg-sand text-midnight">
@@ -30,8 +50,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 {item.label}
               </Link>
             ))}
-            <Button asChild size="sm">
-              <a href="#order">Order Now</a>
+            <Button size="sm" onClick={handleOrderNow}>
+              Order Now
             </Button>
           </nav>
         </div>
