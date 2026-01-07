@@ -1,6 +1,6 @@
 export type FulfillmentMethod = 'delivery' | 'pickup'
 
-export type OrderStatus = 'Outstanding' | 'In Progress' | 'Ready' | 'Shipped' | 'Picked Up' | 'Canceled'
+export type OrderStatus = 'Outstanding' | 'In Progress' | 'Ready' | 'Delivered' | 'Picked Up' | 'Canceled'
 
 export interface ProductSize {
   id: string

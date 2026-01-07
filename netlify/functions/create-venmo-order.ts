@@ -92,7 +92,7 @@ export const handler: Handler = async (event) => {
               }
             : null,
       })
-      .select('id')
+      .select('id, order_number')
       .single()
 
     if (orderError || !order) throw new Error('Failed to create order')
@@ -124,7 +124,7 @@ export const handler: Handler = async (event) => {
 
     // Send order confirmation email
     if (resend && payload.customer.email) {
-      const orderNumber = order.id.slice(0, 8).toUpperCase()
+      const orderNumber = order.order_number?.toString() || order.id.slice(0, 8).toUpperCase()
       const formattedTotal = (totals.total / 100).toFixed(2)
       const deliveryAddress = payload.fulfillment_method === 'delivery' 
         ? `${payload.customer.address}, ${payload.customer.city}, ${payload.customer.state} ${payload.customer.postal_code}`
@@ -213,7 +213,7 @@ export const handler: Handler = async (event) => {
     }
 
     // Send notifications to all admins with notifications enabled
-    const orderNumber = order.id.slice(0, 8).toUpperCase()
+    const orderNumber = order.order_number?.toString() || order.id.slice(0, 8).toUpperCase()
     const formattedTotal = (totals.total / 100).toFixed(2)
     const deliveryAddress = payload.fulfillment_method === 'delivery' 
       ? `${payload.customer.address}, ${payload.customer.city}, ${payload.customer.state} ${payload.customer.postal_code}`
@@ -326,7 +326,7 @@ export const handler: Handler = async (event) => {
         total_cents: totals.total,
         currency: settings.currency || 'USD',
         venmo_address: settings.venmo_address,
-        order_number: order.id.slice(0, 8).toUpperCase(),
+        order_number: order.order_number?.toString() || order.id.slice(0, 8).toUpperCase(),
       }),
     }
   } catch (error) {

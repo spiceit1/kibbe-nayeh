@@ -21,6 +21,7 @@ type OrderItem = {
 
 type OrderRow = {
   id: string
+  order_number: number
   status: OrderStatus
   total_cents: number
   subtotal_cents: number
@@ -85,8 +86,11 @@ export default function AdminPage() {
   const [customerOrders, setCustomerOrders] = useState<OrderRow[]>([])
   const [loadingCustomerOrders, setLoadingCustomerOrders] = useState(false)
   const [dateRange, setDateRange] = useState<'all' | 'today' | 'week' | 'month' | 'custom'>('all')
+  const [statusFilter, setStatusFilter] = useState<OrderStatus | 'all'>('all')
   const [customStartDate, setCustomStartDate] = useState<string>('')
   const [customEndDate, setCustomEndDate] = useState<string>('')
+  const [sortBy, setSortBy] = useState<'order_number' | 'date' | 'total'>('order_number')
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   const [showPasswordReset, setShowPasswordReset] = useState(false)
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -137,28 +141,20 @@ export default function AdminPage() {
     setError(null)
     try {
       const adminEmail = sessionStorage.getItem('admin_email')
+      if (!adminEmail) {
+        setError('Admin email not found in session')
+        setLoading(false)
+        return
+      }
+      
       const [sizeRes, settingsRes, orderRes, customerRes, ingredientRes] = await Promise.all([
         fetch('/.netlify/functions/list-sizes').then((r) => r.json()),
         client.from('settings').select('*').limit(1).maybeSingle(),
-        client
-          .from('orders')
-          .select(`
-            id,
-            status,
-            total_cents,
-            subtotal_cents,
-            fulfillment_method,
-            created_at,
-            payment_status,
-            delivery_fee_cents,
-            pickup_discount_cents,
-            notes,
-            delivery_address,
-            customer:customers(id, name, email, phone),
-            order_items(size_name, quantity, price_cents, unit_label)
-          `)
-          .order('created_at', { ascending: false })
-          .limit(50),
+        // Use RPC function to get orders with customer data (bypasses RLS)
+        client.rpc('get_orders_with_customers', {
+          admin_email: adminEmail,
+          limit_count: 50,
+        }),
         client.from('dedup_customers').select('*'),
         client.from('ingredients').select('*').order('name'),
       ])
@@ -171,39 +167,26 @@ export default function AdminPage() {
       setSettings(settingsRes.data as Settings)
       
       // Fetch user notification settings using RPC function (bypasses RLS)
-      if (adminEmail) {
-        try {
-          const { data: userData, error: userError } = await client.rpc('get_user_notifications', {
-            admin_email: adminEmail,
+      try {
+        const { data: userData, error: userError } = await client.rpc('get_user_notifications', {
+          admin_email: adminEmail,
+        })
+        if (userError) {
+          console.error('Error fetching user notifications:', userError)
+          // Create default user object if RPC fails
+          setCurrentUser({
+            id: '',
+            email: adminEmail,
+            notification_email: null,
+            notification_phone: null,
+            email_notifications_enabled: false,
+            sms_notifications_enabled: false,
           })
-          if (userError) {
-            console.error('Error fetching user notifications:', userError)
-            // Create default user object if RPC fails
-            setCurrentUser({
-              id: '',
-              email: adminEmail,
-              notification_email: null,
-              notification_phone: null,
-              email_notifications_enabled: false,
-              sms_notifications_enabled: false,
-            })
-          } else if (userData) {
-            setCurrentUser(userData as AdminUser)
-            console.log('Current user loaded:', userData)
-          } else {
-            // Create default user object if no data returned
-            setCurrentUser({
-              id: '',
-              email: adminEmail,
-              notification_email: null,
-              notification_phone: null,
-              email_notifications_enabled: false,
-              sms_notifications_enabled: false,
-            })
-          }
-        } catch (userErr) {
-          console.error('Error in get_user_notifications:', userErr)
-          // Create default user object on error
+        } else if (userData) {
+          setCurrentUser(userData as AdminUser)
+          console.log('Current user loaded:', userData)
+        } else {
+          // Create default user object if no data returned
           setCurrentUser({
             id: '',
             email: adminEmail,
@@ -213,15 +196,22 @@ export default function AdminPage() {
             sms_notifications_enabled: false,
           })
         }
+      } catch (userErr) {
+        console.error('Error in get_user_notifications:', userErr)
+        // Create default user object on error
+        setCurrentUser({
+          id: '',
+          email: adminEmail,
+          notification_email: null,
+          notification_phone: null,
+          email_notifications_enabled: false,
+          sms_notifications_enabled: false,
+        })
       }
       
-      // Transform orders data to include nested relations
-      const ordersData = (orderRes.data || []).map((order: any) => ({
-        ...order,
-        customer: order.customer ? (Array.isArray(order.customer) ? order.customer[0] : order.customer) : null,
-        order_items: order.order_items || [],
-      }))
-      setOrders(ordersData as OrderRow[])
+      // RPC function returns orders with customer data already included
+      const ordersData = (orderRes.data || []) as OrderRow[]
+      setOrders(ordersData)
       
       // Get order counts for customers
       const customersData = await Promise.all(
@@ -639,16 +629,41 @@ export default function AdminPage() {
     const client = supabase
     if (!client) return
     
+    const adminEmail = sessionStorage.getItem('admin_email')
+    if (!adminEmail) {
+      setError('Admin session not found')
+      showToast('Error: Admin session not found', 'error')
+      return
+    }
+    
     const toastId = showToast('Updating order...', 'saving')
-    const { error: updateError } = await client.from('orders').update({ status }).eq('id', orderId)
+    
+    // Optimistically update local state
+    setOrders((prev) => prev.map((o) => o.id === orderId ? { ...o, status } : o))
+    
+    // Use RPC function to update order status (bypasses RLS)
+    const { data: updatedOrder, error: updateError } = await client.rpc('update_order_status', {
+      admin_email: adminEmail,
+      order_id: orderId,
+      new_status: status,
+    })
+    
     if (updateError) {
       removeToast(toastId)
       setError(updateError.message)
       showToast(`Error: ${updateError.message}`, 'error')
+      // Revert by refetching
+      fetchDashboard()
     } else {
       removeToast(toastId)
       showToast('✓ Order updated', 'success')
-      fetchDashboard()
+      // Update local state with the returned order data
+      if (updatedOrder) {
+        setOrders((prev) => prev.map((o) => o.id === orderId ? { ...o, status } : o))
+      } else {
+        // Fallback: refetch dashboard
+        fetchDashboard()
+      }
     }
   }
 
@@ -691,48 +706,144 @@ export default function AdminPage() {
     await loadCustomerOrders(customer.id)
   }
 
-  // Filter orders by date range
+  // Filter orders by date range and status
   const filteredOrders = useMemo(() => {
-    if (dateRange === 'all') return orders
+    let filtered = orders
     
-    if (dateRange === 'custom') {
-      if (!customStartDate || !customEndDate) return orders
-      const startDate = new Date(customStartDate)
-      const endDate = new Date(customEndDate)
-      endDate.setHours(23, 59, 59, 999)
-      return orders.filter((o) => {
-        const orderDate = new Date(o.created_at)
-        return orderDate >= startDate && orderDate <= endDate
-      })
+    // Filter by date range
+    if (dateRange !== 'all') {
+      if (dateRange === 'custom') {
+        if (customStartDate && customEndDate) {
+          const startDate = new Date(customStartDate)
+          const endDate = new Date(customEndDate)
+          endDate.setHours(23, 59, 59, 999)
+          filtered = filtered.filter((o) => {
+            const orderDate = new Date(o.created_at)
+            return orderDate >= startDate && orderDate <= endDate
+          })
+        }
+      } else {
+        const now = new Date()
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+        let startDate: Date
+        
+        switch (dateRange) {
+          case 'today':
+            startDate = today
+            break
+          case 'week':
+            startDate = new Date(today)
+            startDate.setDate(startDate.getDate() - 7)
+            break
+          case 'month':
+            startDate = new Date(today)
+            startDate.setMonth(startDate.getMonth() - 1)
+            break
+          default:
+            break
+        }
+        
+        const endDate = new Date(today)
+        endDate.setHours(23, 59, 59, 999)
+        
+        filtered = filtered.filter((o) => {
+          const orderDate = new Date(o.created_at)
+          return orderDate >= startDate && orderDate <= endDate
+        })
+      }
     }
     
-    const now = new Date()
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-    let startDate: Date
-    
-    switch (dateRange) {
-      case 'today':
-        startDate = today
-        break
-      case 'week':
-        startDate = new Date(today)
-        startDate.setDate(startDate.getDate() - 7)
-        break
-      case 'month':
-        startDate = new Date(today)
-        startDate.setMonth(startDate.getMonth() - 1)
-        break
-      default:
-        return orders
+    // Filter by status
+    if (statusFilter !== 'all') {
+      filtered = filtered.filter((o) => o.status === statusFilter)
     }
     
-    const endDate = new Date(today)
-    endDate.setHours(23, 59, 59, 999)
-    
-    return orders.filter((o) => {
-      const orderDate = new Date(o.created_at)
-      return orderDate >= startDate && orderDate <= endDate
+    // Sort orders
+    filtered = [...filtered].sort((a, b) => {
+      let comparison = 0
+      
+      switch (sortBy) {
+        case 'order_number':
+          comparison = (a.order_number || 0) - (b.order_number || 0)
+          break
+        case 'date':
+          comparison = new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+          break
+        case 'total':
+          comparison = a.total_cents - b.total_cents
+          break
+      }
+      
+      return sortOrder === 'asc' ? comparison : -comparison
     })
+    
+    return filtered
+  }, [orders, dateRange, customStartDate, customEndDate, statusFilter, sortBy, sortOrder])
+
+  // Calculate order counts by status (respecting date filter but not status filter)
+  const statusCounts = useMemo(() => {
+    let dateFiltered = orders
+    
+    // Apply date filter only
+    if (dateRange !== 'all') {
+      if (dateRange === 'custom') {
+        if (customStartDate && customEndDate) {
+          const startDate = new Date(customStartDate)
+          const endDate = new Date(customEndDate)
+          endDate.setHours(23, 59, 59, 999)
+          dateFiltered = dateFiltered.filter((o) => {
+            const orderDate = new Date(o.created_at)
+            return orderDate >= startDate && orderDate <= endDate
+          })
+        }
+      } else {
+        const now = new Date()
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+        let startDate: Date
+        
+        switch (dateRange) {
+          case 'today':
+            startDate = today
+            break
+          case 'week':
+            startDate = new Date(today)
+            startDate.setDate(startDate.getDate() - 7)
+            break
+          case 'month':
+            startDate = new Date(today)
+            startDate.setMonth(startDate.getMonth() - 1)
+            break
+          default:
+            return {
+              all: orders.length,
+              'Outstanding': orders.filter((o) => o.status === 'Outstanding').length,
+              'In Progress': orders.filter((o) => o.status === 'In Progress').length,
+              'Ready': orders.filter((o) => o.status === 'Ready').length,
+              'Delivered': orders.filter((o) => o.status === 'Delivered').length,
+              'Picked Up': orders.filter((o) => o.status === 'Picked Up').length,
+              'Canceled': orders.filter((o) => o.status === 'Canceled').length,
+            }
+        }
+        
+        const endDate = new Date(today)
+        endDate.setHours(23, 59, 59, 999)
+        
+        dateFiltered = dateFiltered.filter((o) => {
+          const orderDate = new Date(o.created_at)
+          return orderDate >= startDate && orderDate <= endDate
+        })
+      }
+    }
+    
+    return {
+      all: dateFiltered.length,
+      'Outstanding': dateFiltered.filter((o) => o.status === 'Outstanding').length,
+      'In Progress': dateFiltered.filter((o) => o.status === 'In Progress').length,
+      'Ready': dateFiltered.filter((o) => o.status === 'Ready').length,
+      'Delivered': dateFiltered.filter((o) => o.status === 'Delivered').length,
+      'Picked Up': dateFiltered.filter((o) => o.status === 'Picked Up').length,
+      'Canceled': dateFiltered.filter((o) => o.status === 'Canceled').length,
+    }
   }, [orders, dateRange, customStartDate, customEndDate])
 
   const outstandingOrders = orders.filter((o) => o.status === 'Outstanding')
@@ -1562,11 +1673,86 @@ export default function AdminPage() {
           <CardDescription>Filter, update status, review notes</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {orders.map((order) => (
+          {/* Sort Controls */}
+          <div className="flex flex-wrap items-center gap-4 pb-4 border-b border-neutral-200">
+            <div className="flex items-center gap-2">
+              <Label>Sort by:</Label>
+              <Select value={sortBy} onChange={(e) => setSortBy(e.target.value as 'order_number' | 'date' | 'total')}>
+                <option value="order_number">Order Number</option>
+                <option value="date">Date</option>
+                <option value="total">Total Amount</option>
+              </Select>
+            </div>
+            <div className="flex items-center gap-2">
+              <Label>Order:</Label>
+              <Select value={sortOrder} onChange={(e) => setSortOrder(e.target.value as 'asc' | 'desc')}>
+                <option value="desc">Descending</option>
+                <option value="asc">Ascending</option>
+              </Select>
+            </div>
+          </div>
+          
+          {/* Status Filter */}
+          <div className="flex flex-wrap gap-2 pb-4 border-b border-neutral-200">
+            <Button
+              size="sm"
+              variant={statusFilter === 'all' ? 'default' : 'outline'}
+              onClick={() => setStatusFilter('all')}
+            >
+              All ({statusCounts.all})
+            </Button>
+            <Button
+              size="sm"
+              variant={statusFilter === 'Outstanding' ? 'default' : 'outline'}
+              onClick={() => setStatusFilter('Outstanding')}
+            >
+              Outstanding ({statusCounts['Outstanding']})
+            </Button>
+            <Button
+              size="sm"
+              variant={statusFilter === 'In Progress' ? 'default' : 'outline'}
+              onClick={() => setStatusFilter('In Progress')}
+            >
+              In Progress ({statusCounts['In Progress']})
+            </Button>
+            <Button
+              size="sm"
+              variant={statusFilter === 'Ready' ? 'default' : 'outline'}
+              onClick={() => setStatusFilter('Ready')}
+            >
+              Ready ({statusCounts['Ready']})
+            </Button>
+            <Button
+              size="sm"
+              variant={statusFilter === 'Delivered' ? 'default' : 'outline'}
+              onClick={() => setStatusFilter('Delivered')}
+            >
+              Delivered ({statusCounts['Delivered']})
+            </Button>
+            <Button
+              size="sm"
+              variant={statusFilter === 'Picked Up' ? 'default' : 'outline'}
+              onClick={() => setStatusFilter('Picked Up')}
+            >
+              Picked Up ({statusCounts['Picked Up']})
+            </Button>
+            <Button
+              size="sm"
+              variant={statusFilter === 'Canceled' ? 'default' : 'outline'}
+              onClick={() => setStatusFilter('Canceled')}
+            >
+              Canceled ({statusCounts['Canceled']})
+            </Button>
+          </div>
+          
+          {filteredOrders.length === 0 ? (
+            <p className="text-center text-midnight/60 py-8">No orders found matching the selected filters.</p>
+          ) : (
+            filteredOrders.map((order) => (
             <div key={order.id} className="rounded-lg border border-neutral-200 p-4 space-y-4">
               <div className="grid gap-3 md:grid-cols-5 md:items-center">
                 <div className="md:col-span-2">
-                  <div className="font-semibold text-midnight">#{order.id.slice(0, 8).toUpperCase()}</div>
+                  <div className="font-semibold text-midnight">#{order.order_number || order.id.slice(0, 8).toUpperCase()}</div>
                   <p className="text-sm text-midnight/60">{new Date(order.created_at).toLocaleString()}</p>
                   <Badge className="mt-2">{order.fulfillment_method}</Badge>
                 </div>
@@ -1584,7 +1770,7 @@ export default function AdminPage() {
                     <option>Outstanding</option>
                     <option>In Progress</option>
                     <option>Ready</option>
-                    <option>Shipped</option>
+                    <option>Delivered</option>
                     <option>Picked Up</option>
                     <option>Canceled</option>
                   </Select>
@@ -1664,7 +1850,8 @@ export default function AdminPage() {
                 </div>
               )}
             </div>
-          ))}
+            ))
+          )}
         </CardContent>
       </Card>
 

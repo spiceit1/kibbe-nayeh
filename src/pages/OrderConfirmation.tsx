@@ -8,6 +8,7 @@ import { supabase } from '../lib/supabaseClient'
 
 type OrderSummary = {
   id: string
+  order_number?: number
   status: string
   fulfillment_method: string
   total_cents: number
@@ -35,6 +36,7 @@ export default function OrderConfirmationPage() {
             .from('orders')
             .select(`
               id,
+              order_number,
               status,
               fulfillment_method,
               total_cents,
@@ -56,6 +58,7 @@ export default function OrderConfirmationPage() {
           
           setOrder({
             id: orderData.id,
+            order_number: orderData.order_number,
             status: orderData.status,
             fulfillment_method: orderData.fulfillment_method,
             total_cents: orderData.total_cents,
@@ -128,7 +131,7 @@ export default function OrderConfirmationPage() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle>Order #{order.id.slice(0, 8).toUpperCase()}</CardTitle>
+                <CardTitle>Order #{order.order_number || order.id.slice(0, 8).toUpperCase()}</CardTitle>
                 <CardDescription>Fulfillment: {order.fulfillment_method}</CardDescription>
               </div>
               <Badge variant={order.status === 'Outstanding' ? 'warning' : 'success'}>{order.status}</Badge>

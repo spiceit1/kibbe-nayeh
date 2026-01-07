@@ -86,9 +86,10 @@ create table if not exists customers (
 
 create table if not exists orders (
   id uuid primary key default gen_random_uuid(),
+  order_number integer unique not null default nextval('order_number_seq'),
   customer_id uuid references customers(id) on delete set null,
   fulfillment_method text check (fulfillment_method in ('delivery','pickup')) not null,
-  status text check (status in ('Outstanding','In Progress','Ready','Shipped','Picked Up','Canceled')) default 'Outstanding',
+  status text check (status in ('Outstanding','In Progress','Ready','Delivered','Picked Up','Canceled')) default 'Outstanding',
   subtotal_cents integer default 0,
   pickup_discount_cents integer default 0,
   delivery_fee_cents integer default 0,
@@ -101,6 +102,9 @@ create table if not exists orders (
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
+
+-- Create sequence for order numbers starting at 1001
+create sequence if not exists order_number_seq start 1001;
 
 create table if not exists order_items (
   id uuid primary key default gen_random_uuid(),
@@ -229,4 +233,132 @@ create policy "Admins can read admin_users" on admin_users
 
 create policy "Admins can update own password" on admin_users
   for update using (is_admin()) with check (is_admin());
+
+-- RPC function to get orders with customer data (bypasses RLS)
+create or replace function get_orders_with_customers(
+  admin_email text,
+  limit_count integer default 50
+)
+returns jsonb
+security definer
+set search_path = public
+language plpgsql
+as $$
+declare
+  is_admin_user boolean;
+  orders_data jsonb;
+begin
+  -- Verify admin
+  select exists (
+    select 1 from admin_users au
+    where lower(au.email) = lower(admin_email)
+  ) into is_admin_user;
+  
+  if not is_admin_user then
+    raise exception 'Unauthorized: Admin access required';
+  end if;
+  
+  -- Fetch orders with customer and order_items data
+  select jsonb_agg(
+    jsonb_build_object(
+      'id', o.id,
+      'order_number', o.order_number,
+      'status', o.status,
+      'total_cents', o.total_cents,
+      'subtotal_cents', o.subtotal_cents,
+      'fulfillment_method', o.fulfillment_method,
+      'created_at', o.created_at,
+      'payment_status', o.payment_status,
+      'delivery_fee_cents', o.delivery_fee_cents,
+      'pickup_discount_cents', o.pickup_discount_cents,
+      'notes', o.notes,
+      'delivery_address', o.delivery_address,
+      'customer', case 
+        when c.id is not null then jsonb_build_object(
+          'id', c.id,
+          'name', c.name,
+          'email', c.email,
+          'phone', c.phone
+        )
+        else null
+      end,
+      'order_items', (
+        select jsonb_agg(
+          jsonb_build_object(
+            'size_name', oi.size_name,
+            'quantity', oi.quantity,
+            'price_cents', oi.price_cents,
+            'unit_label', oi.unit_label
+          )
+        )
+        from order_items oi
+        where oi.order_id = o.id
+      )
+    )
+    order by o.created_at desc
+  )
+  into orders_data
+  from orders o
+  left join customers c on c.id = o.customer_id
+  limit limit_count;
+  
+  return coalesce(orders_data, '[]'::jsonb);
+end;
+$$;
+
+-- Grant execute permission to anon and authenticated roles
+grant execute on function get_orders_with_customers(text, integer) to anon, authenticated;
+
+-- RPC function to update order status (bypasses RLS)
+create or replace function update_order_status(
+  admin_email text,
+  order_id uuid,
+  new_status text
+)
+returns jsonb
+security definer
+set search_path = public
+language plpgsql
+as $$
+declare
+  is_admin_user boolean;
+  updated_order jsonb;
+begin
+  -- Verify admin
+  select exists (
+    select 1 from admin_users au
+    where lower(au.email) = lower(admin_email)
+  ) into is_admin_user;
+  
+  if not is_admin_user then
+    raise exception 'Unauthorized: Admin access required';
+  end if;
+  
+  -- Validate status
+  if new_status not in ('Outstanding', 'In Progress', 'Ready', 'Delivered', 'Picked Up', 'Canceled') then
+    raise exception 'Invalid status: %', new_status;
+  end if;
+  
+  -- Update order status
+  update orders
+  set 
+    status = new_status,
+    updated_at = now()
+  where id = order_id;
+  
+  -- Create status history entry
+  insert into order_status_history (order_id, status, note)
+  values (order_id, new_status, 'Status updated by admin');
+  
+  -- Return updated order
+  select row_to_json(o)::jsonb into updated_order
+  from orders o
+  where o.id = order_id;
+  
+  return updated_order;
+end;
+$$;
+
+-- Grant execute permission to anon and authenticated roles
+grant execute on function update_order_status(text, uuid, text) to anon, authenticated;
 
