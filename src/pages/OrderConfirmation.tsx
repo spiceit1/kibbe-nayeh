@@ -113,15 +113,16 @@ export default function OrderConfirmationPage() {
                 <li>You'll receive a confirmation email and SMS</li>
               </ul>
             </div>
-            <Button
-              className="w-full"
+            <button
+              className="w-full rounded-full bg-[#3D95CE] px-6 py-3.5 text-white font-bold text-4xl italic hover:bg-[#2d7fb8] transition-colors tracking-tight"
+              style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}
               onClick={() => {
                 const venmoUrl = `https://venmo.com/${venmoAddress}?txn=pay&amount=${Number(totalCents) / 100}&note=Order ${orderId?.slice(0, 8).toUpperCase()}`
                 window.open(venmoUrl, '_blank')
               }}
             >
-              Open Venmo App
-            </Button>
+              venmo
+            </button>
           </CardContent>
         </Card>
       )}

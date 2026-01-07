@@ -122,15 +122,28 @@ export const handler: Handler = async (event) => {
       .update({ available_qty: Math.max(0, size.available_qty - payload.quantity) })
       .eq('id', size.id)
 
+    // Prepare order details for emails/SMS
+    const orderNumber = order.order_number?.toString() || order.id.slice(0, 8).toUpperCase()
+    const formattedTotal = (totals.total / 100).toFixed(2)
+    const deliveryAddress = payload.fulfillment_method === 'delivery' 
+      ? `${payload.customer.address}, ${payload.customer.city}, ${payload.customer.state} ${payload.customer.postal_code}`
+      : null
+
     // Send order confirmation email
     if (resend && payload.customer.email) {
-      const orderNumber = order.order_number?.toString() || order.id.slice(0, 8).toUpperCase()
-      const formattedTotal = (totals.total / 100).toFixed(2)
-      const deliveryAddress = payload.fulfillment_method === 'delivery' 
-        ? `${payload.customer.address}, ${payload.customer.city}, ${payload.customer.state} ${payload.customer.postal_code}`
-        : null
-
+      // Build Venmo payment link
+      const venmoLink = `https://venmo.com/?txn=pay&audience=private&recipients=${encodeURIComponent(settings.venmo_address || '')}&amount=${formattedTotal}&note=Order%20%23${encodeURIComponent(orderNumber)}`
+      console.log('=== EMAIL SENDING DEBUG ===')
+      console.log('Resend configured:', !!resend)
+      console.log('RESEND_API_KEY exists:', !!process.env.RESEND_API_KEY)
       console.log('Sending order confirmation email to:', payload.customer.email)
+      console.log('Venmo payment link:', venmoLink)
+      console.log('Venmo address:', settings.venmo_address)
+      
+      if (!resend) {
+        console.error('❌ Resend is not configured - RESEND_API_KEY is missing or invalid')
+      }
+      
       try {
         const emailResult = await resend.emails.send({
           from: 'Kibbeh Nayeh <orders@notifications.anemoneking.com>',
@@ -155,6 +168,15 @@ export const handler: Handler = async (event) => {
                 <p style="font-size: 20px; font-weight: bold; color: #8B1538;">${settings.venmo_address}</p>
                 <p><strong>Amount:</strong> $${formattedTotal} ${settings.currency || 'USD'}</p>
                 <p style="color: #666; font-size: 12px;">Please include order number #${orderNumber} in your Venmo payment note.</p>
+                <div style="margin-top: 20px; text-align: center;">
+                  <a href="${venmoLink}" 
+                     style="display: inline-block; color: #3D95CE; text-decoration: none; font-weight: bold; font-size: 18px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
+                    💰 Pay with Venmo
+                  </a>
+                </div>
+                <p style="margin-top: 15px; color: #666; font-size: 12px; text-align: center;">
+                  Click the button above to open Venmo with payment details pre-filled (recipient: ${settings.venmo_address}, amount: $${formattedTotal}, note: Order #${orderNumber})
+                </p>
               </div>
 
               <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd;">
@@ -172,52 +194,55 @@ export const handler: Handler = async (event) => {
           `,
         })
 
-        console.log('Order confirmation email result:', emailResult)
+        console.log('Order confirmation email result:', JSON.stringify(emailResult, null, 2))
         
         if (emailResult.error) {
-          console.error('Resend API error for order confirmation:', emailResult.error)
+          console.error('❌ Resend API error for order confirmation:', emailResult.error)
         } else {
-          console.log('Order confirmation email sent successfully, ID:', emailResult.data?.id)
+          console.log('✅ Order confirmation email sent successfully, ID:', emailResult.data?.id)
         }
       } catch (emailError) {
-        console.error('Error sending order confirmation email:', emailError)
+        console.error('❌ Error sending order confirmation email:', emailError)
         // Don't fail the order if email fails
       }
-
-      // Send SMS via Twilio
-      if (sms && twilioFrom && payload.customer.phone) {
-        try {
-          const phoneNumber = payload.customer.phone.replace(/\D/g, '') // Remove non-digits
-          console.log('Attempting to send SMS via Twilio to phone:', phoneNumber)
-          
-          if (phoneNumber.length === 10) {
-            const smsMessage = `Kibbeh Nayeh order #${orderNumber} confirmed. ${size.name} x${payload.quantity}. Pay $${formattedTotal} to ${settings.venmo_address} via Venmo.`
-            
-            const twilioResult = await sms.messages.create({
-              from: twilioFrom,
-              to: `+1${phoneNumber}`, // Add US country code
-              body: smsMessage,
-            })
-            
-            console.log('Twilio SMS sent successfully, SID:', twilioResult.sid)
-          } else {
-            console.warn('Invalid phone number format for SMS:', payload.customer.phone)
-          }
-        } catch (smsError) {
-          console.error('Error sending SMS via Twilio:', smsError)
-          // SMS is optional, don't fail if it doesn't work
-        }
-      } else if (payload.customer.phone) {
-        console.warn('Twilio not configured - SMS will not be sent. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_FROM_NUMBER environment variables.')
+    } else {
+      console.warn('⚠️ Email not sent - Resend not configured or no customer email')
+      if (!resend) {
+        console.warn('⚠️ RESEND_API_KEY is missing or invalid')
+      }
+      if (!payload.customer.email) {
+        console.warn('⚠️ Customer email is missing')
       }
     }
 
+    // Send SMS via Twilio
+    if (sms && twilioFrom && payload.customer.phone) {
+      try {
+        const phoneNumber = payload.customer.phone.replace(/\D/g, '') // Remove non-digits
+        console.log('Attempting to send SMS via Twilio to phone:', phoneNumber)
+        
+        if (phoneNumber.length === 10) {
+          const smsMessage = `Kibbeh Nayeh order #${orderNumber} confirmed. ${size.name} x${payload.quantity}. Pay $${formattedTotal} to ${settings.venmo_address} via Venmo.`
+          
+          const twilioResult = await sms.messages.create({
+            from: twilioFrom,
+            to: `+1${phoneNumber}`, // Add US country code
+            body: smsMessage,
+          })
+          
+          console.log('Twilio SMS sent successfully, SID:', twilioResult.sid)
+        } else {
+          console.warn('Invalid phone number format for SMS:', payload.customer.phone)
+        }
+      } catch (smsError) {
+        console.error('Error sending SMS via Twilio:', smsError)
+        // SMS is optional, don't fail if it doesn't work
+      }
+    } else if (payload.customer.phone) {
+      console.warn('Twilio not configured - SMS will not be sent. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_FROM_NUMBER environment variables.')
+    }
+
     // Send notifications to all admins with notifications enabled
-    const orderNumber = order.order_number?.toString() || order.id.slice(0, 8).toUpperCase()
-    const formattedTotal = (totals.total / 100).toFixed(2)
-    const deliveryAddress = payload.fulfillment_method === 'delivery' 
-      ? `${payload.customer.address}, ${payload.customer.city}, ${payload.customer.state} ${payload.customer.postal_code}`
-      : null
 
     // Get all admins with notifications enabled
     const { data: adminsWithNotifications } = await supabase

@@ -1,0 +1,4 @@
+# SPA redirect - only applies in production builds
+# This file is copied to dist/ during build
+/*    /index.html   200
+

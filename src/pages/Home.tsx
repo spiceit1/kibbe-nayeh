@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { AlertCircle, CheckCircle2, Truck, Utensils, Phone, Mail, MapPin } from 'lucide-react'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
@@ -26,6 +27,7 @@ const emptyForm = {
 }
 
 export default function HomePage() {
+  const navigate = useNavigate()
   const [sizes, setSizes] = useState<ProductSize[]>(sampleSizes)
   const [settings, setSettings] = useState<Settings>(defaultSettings)
   const [form, setForm] = useState(emptyForm)
@@ -114,9 +116,9 @@ export default function HomePage() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Unable to create order')
       
-      // Redirect to Venmo payment page
+      // Redirect to order confirmation page
       if (data.order_id && data.venmo_address) {
-        window.location.href = `/order-confirmation?order_id=${data.order_id}&venmo=${encodeURIComponent(data.venmo_address)}&total=${data.total_cents}&currency=${data.currency}`
+        navigate(`/order-confirmation?order_id=${data.order_id}&venmo=${encodeURIComponent(data.venmo_address)}&total=${data.total_cents}&currency=${data.currency}`)
       } else {
         throw new Error('Missing order or Venmo information')
       }
