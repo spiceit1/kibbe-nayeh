@@ -107,7 +107,7 @@ export default function OrderConfirmationPage() {
             <div className="space-y-2 text-sm text-midnight/80">
               <p><strong>Important:</strong></p>
               <ul className="list-disc list-inside space-y-1">
-                <li>Include order #{orderId?.slice(0, 8).toUpperCase()} in the Venmo note</li>
+                <li>Include order #{order?.order_number || orderId?.slice(0, 8).toUpperCase()} in the Venmo note</li>
                 <li>Your order will be prepared once payment is confirmed</li>
                 <li>You'll receive a confirmation email and SMS</li>
               </ul>
@@ -116,7 +116,8 @@ export default function OrderConfirmationPage() {
               className="w-full rounded-full bg-[#3D95CE] px-6 py-3.5 text-white font-bold text-4xl italic hover:bg-[#2d7fb8] transition-colors tracking-tight"
               style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}
               onClick={() => {
-                const venmoUrl = `https://venmo.com/${venmoAddress}?txn=pay&amount=${Number(totalCents) / 100}&note=Order ${orderId?.slice(0, 8).toUpperCase()}`
+                const orderNum = order?.order_number || orderId?.slice(0, 8).toUpperCase()
+                const venmoUrl = `https://venmo.com/${venmoAddress}?txn=pay&amount=${Number(totalCents) / 100}&note=Order ${orderNum}`
                 window.open(venmoUrl, '_blank')
               }}
             >
