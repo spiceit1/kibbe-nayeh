@@ -138,7 +138,7 @@ export default function AdminPage() {
     try {
       const adminEmail = sessionStorage.getItem('admin_email')
       const [sizeRes, settingsRes, orderRes, customerRes, ingredientRes] = await Promise.all([
-        client.from('product_sizes').select('*').order('sort_order'),
+        fetch('/.netlify/functions/list-sizes').then((r) => r.json()),
         client.from('settings').select('*').limit(1).maybeSingle(),
         client
           .from('orders')
@@ -167,7 +167,7 @@ export default function AdminPage() {
       if (orderRes.error) throw orderRes.error
       if (customerRes.error) throw customerRes.error
       if (ingredientRes.error) throw ingredientRes.error
-      setSizes(sizeRes.data || [])
+      setSizes(sizeRes.sizes || [])
       setSettings(settingsRes.data as Settings)
       
       // Fetch user notification settings using RPC function (bypasses RLS)
@@ -514,27 +514,33 @@ export default function AdminPage() {
   }
 
   const updateSize = async (id: string, updates: Partial<ProductSize>) => {
-    const client = supabase
-    if (!client) return
-    
     const toastId = showToast('Saving product...', 'saving')
     setError(null)
-    
+
     // Optimistically update local state
     setSizes((prev) => prev.map((s) => (s.id === id ? { ...s, ...updates } : s)))
-    
-    const { error: updateError } = await client.from('product_sizes').update(updates).eq('id', id)
-    if (updateError) {
-      removeToast(toastId)
-      setError(updateError.message)
-      showToast(`Error: ${updateError.message}`, 'error')
-      // Revert on error
-      fetchDashboard()
-    } else {
+
+    try {
+      const res = await fetch('/.netlify/functions/update-size', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, updates }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Unable to update')
+      // Sync with returned row if present
+      if (data.size) {
+        setSizes((prev) => prev.map((s) => (s.id === id ? { ...s, ...(data.size as Partial<ProductSize>) } : s)))
+      }
       removeToast(toastId)
       showToast('✓ Product updated', 'success')
-      // Refetch to ensure sync
-      setTimeout(() => fetchDashboard(), 300)
+    } catch (err) {
+      removeToast(toastId)
+      const message = (err as Error).message
+      setError(message)
+      showToast(`Error: ${message}`, 'error')
+      // Revert on error
+      fetchDashboard()
     }
   }
   
