@@ -191,8 +191,7 @@ export const handler: Handler = async (event) => {
                     .map((oi) => {
                       const unit = (oi.price_cents / 100).toFixed(2)
                       const line = ((oi.price_cents * oi.quantity) / 100).toFixed(2)
-                      const unitLabel = oi.unit_label ? ` (${oi.unit_label})` : ''
-                      return `<li>${oi.size_name}${unitLabel} × ${oi.quantity} — $${unit} each • $${line}</li>`
+                      return `<li>${oi.size_name} × ${oi.quantity} — $${unit} each • $${line}</li>`
                     })
                     .join('')}
                 </ul>
