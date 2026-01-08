@@ -11,6 +11,7 @@ import { Textarea } from '../components/ui/textarea'
 import { formatCurrency } from '../lib/pricing'
 import type { AdminUser, OrderStatus, ProductSize, Settings } from '../lib/types'
 import { CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { PenLine, Trash2 } from 'lucide-react'
 
 type OrderItem = {
   size_name: string
@@ -69,6 +70,8 @@ type Toast = {
   type: 'saving' | 'success' | 'error'
 }
 
+const ORDER_STATUS_OPTIONS: OrderStatus[] = ['Outstanding', 'In Progress', 'Ready', 'Delivered', 'Picked Up', 'Canceled']
+
 export default function AdminPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -106,6 +109,11 @@ export default function AdminPage() {
   const [savingNewPassword, setSavingNewPassword] = useState(false)
   const [showPasswordSetConfirmation, setShowPasswordSetConfirmation] = useState(false)
   const [currentUser, setCurrentUser] = useState<AdminUser | null>(null)
+  const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([])
+  const [showBulkStatusModal, setShowBulkStatusModal] = useState(false)
+  const [bulkStatus, setBulkStatus] = useState<OrderStatus>('Outstanding')
+  const [bulkUpdating, setBulkUpdating] = useState(false)
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
   
   const showToast = (message: string, type: 'saving' | 'success' | 'error') => {
     const id = Math.random().toString(36).substring(7)
@@ -667,6 +675,110 @@ export default function AdminPage() {
     }
   }
 
+  const applyBulkStatus = async () => {
+    if (selectedOrderIds.length === 0) return
+    const client = supabase
+    if (!client) return
+
+    const adminEmail = sessionStorage.getItem('admin_email')
+    if (!adminEmail) {
+      setError('Admin session not found')
+      showToast('Error: Admin session not found', 'error')
+      return
+    }
+
+    const toastId = showToast('Updating orders...', 'saving')
+    setBulkUpdating(true)
+
+    // Optimistic update
+    setOrders((prev) => prev.map((o) => (selectedOrderIds.includes(o.id) ? { ...o, status: bulkStatus } : o)))
+
+    const results = await Promise.all(
+      selectedOrderIds.map((orderId) =>
+        client.rpc('update_order_status', {
+          admin_email: adminEmail,
+          order_id: orderId,
+          new_status: bulkStatus,
+        })
+      )
+    )
+
+    const errored = results.find((r) => r.error)
+    removeToast(toastId)
+    setBulkUpdating(false)
+
+    if (errored?.error) {
+      setError(errored.error.message)
+      showToast(`Error: ${errored.error.message}`, 'error')
+      fetchDashboard()
+    } else {
+      showToast('✓ Orders updated', 'success')
+    }
+
+    setShowBulkStatusModal(false)
+  }
+
+  const toggleSelectOrder = (orderId: string) => {
+    setSelectedOrderIds((prev) => (prev.includes(orderId) ? prev.filter((id) => id !== orderId) : [...prev, orderId]))
+  }
+
+  const toggleSelectAllVisible = (ids: string[]) => {
+    const allSelected = ids.length > 0 && ids.every((id) => selectedOrderIds.includes(id))
+    if (allSelected) {
+      setSelectedOrderIds((prev) => prev.filter((id) => !ids.includes(id)))
+    } else {
+      setSelectedOrderIds((prev) => Array.from(new Set([...prev, ...ids])))
+    }
+  }
+
+  const openBulkStatusModal = (visibleOrders: OrderRow[]) => {
+    if (selectedOrderIds.length === 0) return
+    const firstOrder =
+      visibleOrders.find((o) => o.id === selectedOrderIds[0]) || orders.find((o) => o.id === selectedOrderIds[0])
+    setBulkStatus((firstOrder?.status as OrderStatus) || 'Outstanding')
+    setShowBulkStatusModal(true)
+  }
+
+  const deleteSelectedOrders = async () => {
+    if (selectedOrderIds.length === 0) return
+    const adminEmail = sessionStorage.getItem('admin_email')
+    if (!adminEmail) {
+      setError('Admin session not found')
+      showToast('Error: Admin session not found', 'error')
+      return
+    }
+
+    const toastId = showToast('Deleting orders...', 'saving')
+    // Optimistic removal
+    const idsToDelete = [...selectedOrderIds]
+    setOrders((prev) => prev.filter((o) => !idsToDelete.includes(o.id)))
+    setSelectedOrderIds([])
+
+    try {
+      const res = await fetch('/.netlify/functions/delete-orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderIds: idsToDelete, adminEmail }),
+      })
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || 'Failed to delete orders')
+      }
+
+      removeToast(toastId)
+      showToast('✓ Orders deleted', 'success')
+    } catch (err) {
+      removeToast(toastId)
+      setError((err as Error).message)
+      showToast(`Error: ${(err as Error).message}`, 'error')
+      // Re-fetch to restore consistency
+      fetchDashboard()
+    } finally {
+      setShowDeleteModal(false)
+    }
+  }
+
   const loadCustomerOrders = async (customerId: string) => {
     const client = supabase
     if (!client) return
@@ -887,6 +999,10 @@ export default function AdminPage() {
       fill: colors[index % colors.length], // Cycle through colors
     }))
   }, [filteredOrders])
+
+  const visibleOrderIds = useMemo(() => filteredOrders.map((o) => o.id), [filteredOrders])
+  const allVisibleSelected = visibleOrderIds.length > 0 && visibleOrderIds.every((id) => selectedOrderIds.includes(id))
+  const selectedCount = selectedOrderIds.length
 
   if (!supabase) {
     return (
@@ -1745,115 +1861,236 @@ export default function AdminPage() {
             </Button>
           </div>
           
+          {/* Selection controls */}
+          <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-neutral-200">
+            <label className="flex items-center gap-2 text-sm text-midnight/80">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-neutral-300 text-pomegranate focus:ring-pomegranate"
+                checked={allVisibleSelected}
+                onChange={() => toggleSelectAllVisible(visibleOrderIds)}
+              />
+              <span>Select all ({filteredOrders.length})</span>
+            </label>
+            {selectedCount > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm text-midnight/80">{selectedCount} selected</span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="flex items-center gap-2"
+                  onClick={() => openBulkStatusModal(filteredOrders)}
+                >
+                  <PenLine size={16} />
+                  {selectedCount === 1 ? 'Edit' : 'Bulk Edit'}
+                </Button>
+                <Button size="sm" className="flex items-center gap-2" onClick={() => setShowDeleteModal(true)}>
+                  <Trash2 size={16} />
+                  Delete
+                </Button>
+              </div>
+            )}
+          </div>
+
           {filteredOrders.length === 0 ? (
             <p className="text-center text-midnight/60 py-8">No orders found matching the selected filters.</p>
           ) : (
-            filteredOrders.map((order) => (
-            <div key={order.id} className="rounded-lg border border-neutral-200 p-4 space-y-4">
-              <div className="grid gap-3 md:grid-cols-5 md:items-center">
-                <div className="md:col-span-2">
-                  <div className="font-semibold text-midnight">#{order.order_number || order.id.slice(0, 8).toUpperCase()}</div>
-                  <p className="text-sm text-midnight/60">{new Date(order.created_at).toLocaleString()}</p>
-                  <Badge className="mt-2">{order.fulfillment_method}</Badge>
-                </div>
-                <div>
-                  <p className="text-sm text-midnight/60">Total</p>
-                  <p className="font-semibold">{formatCurrency(order.total_cents, settings?.currency || 'USD')}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-midnight/60">Payment</p>
-                  <Badge variant={order.payment_status === 'paid' ? 'success' : 'warning'}>{order.payment_status}</Badge>
-                </div>
-                <div className="space-y-2">
-                  <Label>Status</Label>
-                  <Select value={order.status} onChange={(e) => updateOrderStatus(order.id, e.target.value as OrderStatus)}>
-                    <option>Outstanding</option>
-                    <option>In Progress</option>
-                    <option>Ready</option>
-                    <option>Delivered</option>
-                    <option>Picked Up</option>
-                    <option>Canceled</option>
-                  </Select>
-                </div>
-              </div>
-              
-              {/* Order Details */}
-              <div className="grid gap-4 pt-3 border-t border-neutral-200 md:grid-cols-2">
-                <div className="space-y-2">
-                  <p className="text-sm font-semibold text-midnight">Customer</p>
-                  {order.customer ? (
-                    <div className="text-sm text-midnight/80">
-                      <p>{order.customer.name}</p>
-                      <p className="text-midnight/60">{order.customer.email}</p>
-                      {order.customer.phone && <p className="text-midnight/60">{order.customer.phone}</p>}
+            filteredOrders.map((order) => {
+              const isSelected = selectedOrderIds.includes(order.id)
+              return (
+                <div key={order.id} className="rounded-lg border border-neutral-200 p-4 space-y-4">
+                  <div className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      className="mt-1 h-4 w-4 rounded border-neutral-300 text-pomegranate focus:ring-pomegranate"
+                      checked={isSelected}
+                      onChange={() => toggleSelectOrder(order.id)}
+                    />
+                    <div className="flex-1">
+                      <div className="grid gap-3 md:grid-cols-5 md:items-center">
+                        <div className="md:col-span-2">
+                          <div className="font-semibold text-midnight">
+                            #{order.order_number || order.id.slice(0, 8).toUpperCase()}
+                          </div>
+                          <p className="text-sm text-midnight/60">{new Date(order.created_at).toLocaleString()}</p>
+                          <Badge className="mt-2">{order.fulfillment_method}</Badge>
+                        </div>
+                        <div>
+                          <p className="text-sm text-midnight/60">Total</p>
+                          <p className="font-semibold">{formatCurrency(order.total_cents, settings?.currency || 'USD')}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-midnight/60">Payment</p>
+                          <Badge variant={order.payment_status === 'paid' ? 'success' : 'warning'}>
+                            {order.payment_status}
+                          </Badge>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Status</Label>
+                          <Select
+                            value={order.status}
+                            onChange={(e) => updateOrderStatus(order.id, e.target.value as OrderStatus)}
+                          >
+                            {ORDER_STATUS_OPTIONS.map((status) => (
+                              <option key={status}>{status}</option>
+                            ))}
+                          </Select>
+                        </div>
+                      </div>
                     </div>
-                  ) : (
-                    <p className="text-sm text-midnight/60">No customer info</p>
+                  </div>
+                  
+                  {/* Order Details */}
+                  <div className="grid gap-4 pt-3 border-t border-neutral-200 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <p className="text-sm font-semibold text-midnight">Customer</p>
+                      {order.customer ? (
+                        <div className="text-sm text-midnight/80">
+                          <p>{order.customer.name}</p>
+                          <p className="text-midnight/60">{order.customer.email}</p>
+                          {order.customer.phone && <p className="text-midnight/60">{order.customer.phone}</p>}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-midnight/60">No customer info</p>
+                      )}
+                    </div>
+                    
+                    {order.fulfillment_method === 'delivery' && order.delivery_address && (
+                      <div className="space-y-2">
+                        <p className="text-sm font-semibold text-midnight">Delivery Address</p>
+                        <div className="text-sm text-midnight/80">
+                          <p>{order.delivery_address.address}</p>
+                          <p>
+                            {order.delivery_address.city}, {order.delivery_address.state}{' '}
+                            {order.delivery_address.postal_code}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Order Items */}
+                  {order.order_items && order.order_items.length > 0 && (
+                    <div className="space-y-2 pt-3 border-t border-neutral-200">
+                      <p className="text-sm font-semibold text-midnight">Items</p>
+                      <div className="space-y-1">
+                        {order.order_items.map((item, idx) => (
+                          <div key={idx} className="flex items-center justify-between text-sm text-midnight/80">
+                            <span>
+                              {item.size_name} × {item.quantity}
+                            </span>
+                            <span>{formatCurrency(item.price_cents * item.quantity, settings?.currency || 'USD')}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Order Totals Breakdown */}
+                  <div className="space-y-1 pt-3 border-t border-neutral-200 text-sm">
+                    <div className="flex items-center justify-between text-midnight/80">
+                      <span>Subtotal</span>
+                      <span>{formatCurrency(order.subtotal_cents, settings?.currency || 'USD')}</span>
+                    </div>
+                    {order.pickup_discount_cents > 0 && (
+                      <div className="flex items-center justify-between text-olive">
+                        <span>Pickup discount</span>
+                        <span>-{formatCurrency(order.pickup_discount_cents, settings?.currency || 'USD')}</span>
+                      </div>
+                    )}
+                    {order.delivery_fee_cents > 0 && (
+                      <div className="flex items-center justify-between text-midnight/80">
+                        <span>Delivery fee</span>
+                        <span>{formatCurrency(order.delivery_fee_cents, settings?.currency || 'USD')}</span>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between pt-2 border-t border-neutral-200 font-semibold text-midnight">
+                      <span>Total</span>
+                      <span>{formatCurrency(order.total_cents, settings?.currency || 'USD')}</span>
+                    </div>
+                  </div>
+                  
+                  {/* Notes */}
+                  {order.notes && (
+                    <div className="pt-3 border-t border-neutral-200">
+                      <p className="text-sm font-semibold text-midnight mb-1">Notes</p>
+                      <p className="text-sm text-midnight/80">{order.notes}</p>
+                    </div>
                   )}
                 </div>
-                
-                {order.fulfillment_method === 'delivery' && order.delivery_address && (
-                  <div className="space-y-2">
-                    <p className="text-sm font-semibold text-midnight">Delivery Address</p>
-                    <div className="text-sm text-midnight/80">
-                      <p>{order.delivery_address.address}</p>
-                      <p>{order.delivery_address.city}, {order.delivery_address.state} {order.delivery_address.postal_code}</p>
-                    </div>
-                  </div>
-                )}
-              </div>
-              
-              {/* Order Items */}
-              {order.order_items && order.order_items.length > 0 && (
-                <div className="space-y-2 pt-3 border-t border-neutral-200">
-                  <p className="text-sm font-semibold text-midnight">Items</p>
-                  <div className="space-y-1">
-                    {order.order_items.map((item, idx) => (
-                      <div key={idx} className="flex items-center justify-between text-sm text-midnight/80">
-                        <span>{item.size_name} × {item.quantity}</span>
-                        <span>{formatCurrency(item.price_cents * item.quantity, settings?.currency || 'USD')}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              
-              {/* Order Totals Breakdown */}
-              <div className="space-y-1 pt-3 border-t border-neutral-200 text-sm">
-                <div className="flex items-center justify-between text-midnight/80">
-                  <span>Subtotal</span>
-                  <span>{formatCurrency(order.subtotal_cents, settings?.currency || 'USD')}</span>
-                </div>
-                {order.pickup_discount_cents > 0 && (
-                  <div className="flex items-center justify-between text-olive">
-                    <span>Pickup discount</span>
-                    <span>-{formatCurrency(order.pickup_discount_cents, settings?.currency || 'USD')}</span>
-                  </div>
-                )}
-                {order.delivery_fee_cents > 0 && (
-                  <div className="flex items-center justify-between text-midnight/80">
-                    <span>Delivery fee</span>
-                    <span>{formatCurrency(order.delivery_fee_cents, settings?.currency || 'USD')}</span>
-                  </div>
-                )}
-                <div className="flex items-center justify-between pt-2 border-t border-neutral-200 font-semibold text-midnight">
-                  <span>Total</span>
-                  <span>{formatCurrency(order.total_cents, settings?.currency || 'USD')}</span>
-                </div>
-              </div>
-              
-              {/* Notes */}
-              {order.notes && (
-                <div className="pt-3 border-t border-neutral-200">
-                  <p className="text-sm font-semibold text-midnight mb-1">Notes</p>
-                  <p className="text-sm text-midnight/80">{order.notes}</p>
-                </div>
-              )}
-            </div>
-            ))
+              )
+            })
           )}
         </CardContent>
       </Card>
+
+    {showBulkStatusModal && (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+        onClick={() => setShowBulkStatusModal(false)}
+      >
+        <div
+          className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="text-xl font-semibold text-midnight">
+              {selectedCount === 1 ? 'Edit order status' : `Bulk edit ${selectedCount} orders`}
+            </h3>
+            <button
+              type="button"
+              className="text-xl leading-none text-midnight/60 hover:text-midnight"
+              onClick={() => setShowBulkStatusModal(false)}
+            >
+              ×
+            </button>
+          </div>
+          <div className="space-y-3">
+            <Label>Status</Label>
+            <Select value={bulkStatus} onChange={(e) => setBulkStatus(e.target.value as OrderStatus)}>
+              {ORDER_STATUS_OPTIONS.map((status) => (
+                <option key={status} value={status}>
+                  {status}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div className="mt-6 flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setShowBulkStatusModal(false)}>
+              Cancel
+            </Button>
+            <Button onClick={applyBulkStatus} disabled={bulkUpdating}>
+              {bulkUpdating ? 'Updating...' : 'Update orders'}
+            </Button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {showDeleteModal && (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+        onClick={() => setShowDeleteModal(false)}
+      >
+        <div
+          className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="mb-2 text-lg font-semibold text-midnight">
+            Delete {selectedCount === 1 ? 'this order' : `${selectedCount} orders`}?
+          </div>
+          <p className="text-sm text-midnight/70">This cannot be undone.</p>
+          <div className="mt-6 flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setShowDeleteModal(false)}>
+              Cancel
+            </Button>
+            <Button className="bg-red-600 hover:bg-red-700" onClick={deleteSelectedOrders}>
+              Confirm delete
+            </Button>
+          </div>
+        </div>
+      </div>
+    )}
 
       <Card>
         <CardHeader>

@@ -150,19 +150,6 @@ export default function HomePage() {
               <Truck size={16} /> Delivery or pickup
             </div>
           </div>
-          <Card className="grain">
-            <CardHeader>
-              <CardTitle>Freshness & Allergen Note</CardTitle>
-              <CardDescription>
-                Best enjoyed within 24 hours. Contains wheat (bulgur) and may contain traces of nuts from shared prep
-                surfaces.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="text-sm text-midnight/80 space-y-2">
-              <p>Prepared in a certified kitchen. Chill immediately upon receipt. Serve cold with olive oil, mint, and pita.</p>
-              <p>Pickup location: <strong>TODO: Add pickup address</strong>. Delivery available within your set radius.</p>
-            </CardContent>
-          </Card>
         </div>
         <div id="order" className="space-y-4">
           <Card>
