@@ -188,12 +188,12 @@ export const handler: Handler = async (event) => {
                 <p><strong>Items:</strong></p>
                 <ul>
                   ${orderItemsPayload
-                    .map(
-                      (oi) =>
-                        `<li>${oi.size_name} x ${oi.quantity} — $${((oi.price_cents * oi.quantity) / 100).toFixed(
-                          2,
-                        )}</li>`,
-                    )
+                    .map((oi) => {
+                      const unit = (oi.price_cents / 100).toFixed(2)
+                      const line = ((oi.price_cents * oi.quantity) / 100).toFixed(2)
+                      const unitLabel = oi.unit_label ? ` (${oi.unit_label})` : ''
+                      return `<li>${oi.size_name}${unitLabel} × ${oi.quantity} — $${unit} each • $${line}</li>`
+                    })
                     .join('')}
                 </ul>
                 <p><strong>Fulfillment:</strong> ${payload.fulfillment_method === 'delivery' ? 'Delivery' : 'Pickup'}</p>
