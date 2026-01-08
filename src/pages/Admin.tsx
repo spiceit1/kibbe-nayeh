@@ -11,7 +11,7 @@ import { Textarea } from '../components/ui/textarea'
 import { formatCurrency } from '../lib/pricing'
 import type { AdminUser, OrderStatus, ProductSize, Settings } from '../lib/types'
 import { CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { PenLine, Trash2 } from 'lucide-react'
+import { PenLine, Trash2, Settings as SettingsIcon } from 'lucide-react'
 
 type OrderItem = {
   size_name: string
@@ -114,6 +114,7 @@ export default function AdminPage() {
   const [bulkStatus, setBulkStatus] = useState<OrderStatus>('Outstanding')
   const [bulkUpdating, setBulkUpdating] = useState(false)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [showSettingsModal, setShowSettingsModal] = useState(false)
   
   const showToast = (message: string, type: 'saving' | 'success' | 'error') => {
     const id = Math.random().toString(36).substring(7)
@@ -1206,8 +1207,25 @@ export default function AdminPage() {
           <h1 className="font-display text-3xl text-midnight">Dashboard</h1>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => setShowPasswordReset(true)}>Reset Password</Button>
-          <Button variant="outline" onClick={handleLogout}>
+          <Button
+            variant="outline"
+            className="flex items-center justify-center h-12 w-12 rounded-xl border border-neutral-200 hover:border-pomegranate/50 hover:bg-pomegranate/5 transition"
+            onClick={() => setShowSettingsModal(true)}
+          >
+            <SettingsIcon size={18} />
+          </Button>
+          <Button
+            variant="outline"
+            className="rounded-xl border border-neutral-200 hover:border-pomegranate/50 hover:bg-pomegranate/5 transition"
+            onClick={() => setShowPasswordReset(true)}
+          >
+            Reset Password
+          </Button>
+          <Button
+            variant="outline"
+            className="rounded-xl border border-neutral-200 hover:border-pomegranate/50 hover:bg-pomegranate/5 transition"
+            onClick={handleLogout}
+          >
             Sign out: {sessionStorage.getItem('admin_email') || email}
           </Button>
         </div>
@@ -1296,6 +1314,262 @@ export default function AdminPage() {
                   Cancel
                 </Button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showSettingsModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          onClick={() => setShowSettingsModal(false)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-2xl w-full max-w-5xl m-4 overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-neutral-200 px-6 py-4">
+              <div>
+                <h2 className="text-2xl font-display text-midnight">Settings</h2>
+                <p className="text-sm text-midnight/70">Notifications, pickup, and delivery preferences</p>
+              </div>
+              <Button variant="outline" onClick={() => setShowSettingsModal(false)}>
+                ×
+              </Button>
+            </div>
+            <div className="max-h-[80vh] overflow-y-auto p-6 space-y-6">
+              {currentUser && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>My Notifications</CardTitle>
+                    <CardDescription>Configure your personal notification preferences</CardDescription>
+                  </CardHeader>
+                  <CardContent className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2 md:col-span-2">
+                      <Label>Notification email</Label>
+                      <Input
+                        type="email"
+                        placeholder="your-email@example.com"
+                        value={currentUser.notification_email ?? ''}
+                        onChange={(e) => {
+                          setCurrentUser((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  notification_email: e.target.value,
+                                }
+                              : null,
+                          )
+                        }}
+                        onFocus={(e) => e.target.select()}
+                        onBlur={(e) => {
+                          updateUserNotifications({ notification_email: e.target.value || null })
+                        }}
+                      />
+                      <p className="text-xs text-midnight/60">Email address to receive order notifications</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Email notifications</Label>
+                      <div className="pt-2">
+                        <Switch
+                          checked={currentUser.email_notifications_enabled ?? false}
+                          onChange={(e) => {
+                            const newValue = e.target.checked
+                            setCurrentUser((prev) =>
+                              prev ? { ...prev, email_notifications_enabled: newValue } : null,
+                            )
+                            updateUserNotifications({ email_notifications_enabled: newValue })
+                          }}
+                        />
+                      </div>
+                      <p className="text-xs text-midnight/60">
+                        {currentUser.email_notifications_enabled
+                          ? 'Email notifications enabled'
+                          : 'Email notifications disabled'}
+                      </p>
+                    </div>
+                    <div className="space-y-2 md:col-span-2">
+                      <Label>Notification phone</Label>
+                      <Input
+                        type="tel"
+                        placeholder="(555) 123-4567"
+                        value={currentUser.notification_phone ?? ''}
+                        onChange={(e) => {
+                          setCurrentUser((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  notification_phone: e.target.value,
+                                }
+                              : null,
+                          )
+                        }}
+                        onFocus={(e) => e.target.select()}
+                        onBlur={(e) => {
+                          updateUserNotifications({ notification_phone: e.target.value || null })
+                        }}
+                      />
+                      <p className="text-xs text-midnight/60">Phone number to receive SMS notifications</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>SMS notifications</Label>
+                      <div className="pt-2">
+                        <Switch
+                          checked={currentUser.sms_notifications_enabled ?? false}
+                          onChange={(e) => {
+                            const newValue = e.target.checked
+                            setCurrentUser((prev) =>
+                              prev ? { ...prev, sms_notifications_enabled: newValue } : null,
+                            )
+                            updateUserNotifications({ sms_notifications_enabled: newValue })
+                          }}
+                        />
+                      </div>
+                      <p className="text-xs text-midnight/60">
+                        {currentUser.sms_notifications_enabled
+                          ? 'SMS notifications enabled'
+                          : 'SMS notifications disabled'}
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {settings && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Pickup & Delivery Settings</CardTitle>
+                    <CardDescription>Configure fees and discounts</CardDescription>
+                  </CardHeader>
+                  <CardContent className="grid gap-4 md:grid-cols-3">
+                    <div className="space-y-2 md:col-span-3">
+                      <Label>Venmo address</Label>
+                      <Input
+                        type="text"
+                        placeholder="your-venmo-username"
+                        value={settings.venmo_address ?? ''}
+                        onChange={(e) => {
+                          setSettings((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  venmo_address: e.target.value,
+                                }
+                              : null,
+                          )
+                        }}
+                        onFocus={(e) => e.target.select()}
+                        onBlur={(e) => {
+                          updateSettings({ venmo_address: e.target.value || null })
+                        }}
+                      />
+                      <p className="text-xs text-midnight/60">Enter your Venmo username (without @)</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Delivery fee (cents)</Label>
+                      <Input
+                        type="text"
+                        inputMode="numeric"
+                        value={settings.delivery_fee_cents?.toString() ?? '0'}
+                        onChange={(e) => {
+                          const val = e.target.value
+                          if (val === '' || /^-?\d*\.?\d*$/.test(val)) {
+                            setSettings((prev) =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    delivery_fee_cents: val === '' ? 0 : parseInt(val, 10) || 0,
+                                  }
+                                : null,
+                            )
+                          }
+                        }}
+                        onFocus={(e) => e.target.select()}
+                        onBlur={(e) => {
+                          const val = e.target.value === '' ? 0 : parseInt(e.target.value, 10) || 0
+                          updateSettings({ delivery_fee_cents: val })
+                        }}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Pickup discount type</Label>
+                      <Select
+                        value={settings.pickup_discount_type}
+                        onChange={(e) =>
+                          updateSettings({ pickup_discount_type: e.target.value as Settings['pickup_discount_type'] })
+                        }
+                      >
+                        <option value="percent">Percent</option>
+                        <option value="fixed">Fixed</option>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>
+                        Pickup discount value
+                        {settings.pickup_discount_type === 'fixed' && (
+                          <span className="ml-2 text-xs font-normal text-midnight/60">(in cents)</span>
+                        )}
+                        {settings.pickup_discount_type === 'percent' && (
+                          <span className="ml-2 text-xs font-normal text-midnight/60">(percentage)</span>
+                        )}
+                      </Label>
+                      <Input
+                        type="text"
+                        inputMode="numeric"
+                        value={settings.pickup_discount_value?.toString() ?? '0'}
+                        onChange={(e) => {
+                          const val = e.target.value
+                          if (val === '' || /^-?\d*\.?\d*$/.test(val)) {
+                            setSettings((prev) =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    pickup_discount_value: val === '' ? 0 : parseInt(val, 10) || 0,
+                                  }
+                                : null,
+                            )
+                          }
+                        }}
+                        onFocus={(e) => e.target.select()}
+                        onBlur={(e) => {
+                          const val = e.target.value === '' ? 0 : parseInt(e.target.value, 10) || 0
+                          updateSettings({ pickup_discount_value: val })
+                        }}
+                      />
+                      {settings.pickup_discount_type === 'fixed' && settings.pickup_discount_value > 0 && (
+                        <p className="text-xs text-midnight/60">
+                          = {formatCurrency(settings.pickup_discount_value, settings.currency)}
+                        </p>
+                      )}
+                      {settings.pickup_discount_type === 'percent' && settings.pickup_discount_value > 0 && (
+                        <p className="text-xs text-midnight/60">
+                          = {settings.pickup_discount_value}% off
+                        </p>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <Label>
+                        {settings.pickup_discount_enabled ? 'Pickup discount enabled' : 'Pickup discount disabled'}
+                      </Label>
+                      <div className="pt-2">
+                        <Switch
+                          checked={settings.pickup_discount_enabled}
+                          onChange={(e) => {
+                            const newValue = e.target.checked
+                            setSettings((prev) => (prev ? { ...prev, pickup_discount_enabled: newValue } : null))
+                            updateSettings({ pickup_discount_enabled: newValue })
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 border-t border-neutral-200 px-6 py-4">
+              <Button variant="outline" onClick={() => setShowSettingsModal(false)}>
+                Close
+              </Button>
             </div>
           </div>
         </div>
@@ -1587,201 +1861,7 @@ export default function AdminPage() {
         </CardContent>
       </Card>
 
-      {currentUser && (
-        <Card>
-          <CardHeader>
-            <CardTitle>My Notifications</CardTitle>
-            <CardDescription>Configure your personal notification preferences</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2 md:col-span-2">
-              <Label>Notification email</Label>
-              <Input
-                type="email"
-                placeholder="your-email@example.com"
-                value={currentUser.notification_email ?? ''}
-                onChange={(e) => {
-                  setCurrentUser((prev) => prev ? {
-                    ...prev,
-                    notification_email: e.target.value
-                  } : null)
-                }}
-                onFocus={(e) => e.target.select()}
-                onBlur={(e) => {
-                  updateUserNotifications({ notification_email: e.target.value || null })
-                }}
-              />
-              <p className="text-xs text-midnight/60">Email address to receive order notifications</p>
-            </div>
-            <div className="space-y-2">
-              <Label>Email notifications</Label>
-              <div className="pt-2">
-                <Switch
-                  checked={currentUser.email_notifications_enabled ?? false}
-                  onChange={(e) => {
-                    const newValue = e.target.checked
-                    setCurrentUser((prev) => prev ? { ...prev, email_notifications_enabled: newValue } : null)
-                    updateUserNotifications({ email_notifications_enabled: newValue })
-                  }}
-                />
-              </div>
-              <p className="text-xs text-midnight/60">
-                {currentUser.email_notifications_enabled ? 'Email notifications enabled' : 'Email notifications disabled'}
-              </p>
-            </div>
-            <div className="space-y-2 md:col-span-2">
-              <Label>Notification phone</Label>
-              <Input
-                type="tel"
-                placeholder="(555) 123-4567"
-                value={currentUser.notification_phone ?? ''}
-                onChange={(e) => {
-                  setCurrentUser((prev) => prev ? {
-                    ...prev,
-                    notification_phone: e.target.value
-                  } : null)
-                }}
-                onFocus={(e) => e.target.select()}
-                onBlur={(e) => {
-                  updateUserNotifications({ notification_phone: e.target.value || null })
-                }}
-              />
-              <p className="text-xs text-midnight/60">Phone number to receive SMS notifications</p>
-            </div>
-            <div className="space-y-2">
-              <Label>SMS notifications</Label>
-              <div className="pt-2">
-                <Switch
-                  checked={currentUser.sms_notifications_enabled ?? false}
-                  onChange={(e) => {
-                    const newValue = e.target.checked
-                    setCurrentUser((prev) => prev ? { ...prev, sms_notifications_enabled: newValue } : null)
-                    updateUserNotifications({ sms_notifications_enabled: newValue })
-                  }}
-                />
-              </div>
-              <p className="text-xs text-midnight/60">
-                {currentUser.sms_notifications_enabled ? 'SMS notifications enabled' : 'SMS notifications disabled'}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {settings && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Pickup & Delivery Settings</CardTitle>
-            <CardDescription>Configure fees and discounts</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-3">
-            <div className="space-y-2 md:col-span-3">
-              <Label>Venmo address</Label>
-              <Input
-                type="text"
-                placeholder="your-venmo-username"
-                value={settings.venmo_address ?? ''}
-                onChange={(e) => {
-                  setSettings((prev) => prev ? {
-                    ...prev,
-                    venmo_address: e.target.value
-                  } : null)
-                }}
-                onFocus={(e) => e.target.select()}
-                onBlur={(e) => {
-                  updateSettings({ venmo_address: e.target.value || null })
-                }}
-              />
-              <p className="text-xs text-midnight/60">Enter your Venmo username (without @)</p>
-            </div>
-            <div className="space-y-2">
-              <Label>Delivery fee (cents)</Label>
-              <Input
-                type="text"
-                inputMode="numeric"
-                value={settings.delivery_fee_cents?.toString() ?? '0'}
-                onChange={(e) => {
-                  const val = e.target.value
-                  if (val === '' || /^-?\d*\.?\d*$/.test(val)) {
-                    setSettings((prev) => prev ? {
-                      ...prev,
-                      delivery_fee_cents: val === '' ? 0 : parseInt(val, 10) || 0
-                    } : null)
-                  }
-                }}
-                onFocus={(e) => e.target.select()}
-                onBlur={(e) => {
-                  const val = e.target.value === '' ? 0 : parseInt(e.target.value, 10) || 0
-                  updateSettings({ delivery_fee_cents: val })
-                }}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Pickup discount type</Label>
-              <Select
-                value={settings.pickup_discount_type}
-                onChange={(e) => updateSettings({ pickup_discount_type: e.target.value as Settings['pickup_discount_type'] })}
-              >
-                <option value="percent">Percent</option>
-                <option value="fixed">Fixed</option>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>
-                Pickup discount value
-                {settings.pickup_discount_type === 'fixed' && (
-                  <span className="ml-2 text-xs font-normal text-midnight/60">(in cents)</span>
-                )}
-                {settings.pickup_discount_type === 'percent' && (
-                  <span className="ml-2 text-xs font-normal text-midnight/60">(percentage)</span>
-                )}
-              </Label>
-              <Input
-                type="text"
-                inputMode="numeric"
-                value={settings.pickup_discount_value?.toString() ?? '0'}
-                onChange={(e) => {
-                  const val = e.target.value
-                  if (val === '' || /^-?\d*\.?\d*$/.test(val)) {
-                    setSettings((prev) => prev ? {
-                      ...prev,
-                      pickup_discount_value: val === '' ? 0 : parseInt(val, 10) || 0
-                    } : null)
-                  }
-                }}
-                onFocus={(e) => e.target.select()}
-                onBlur={(e) => {
-                  const val = e.target.value === '' ? 0 : parseInt(e.target.value, 10) || 0
-                  updateSettings({ pickup_discount_value: val })
-                }}
-              />
-              {settings.pickup_discount_type === 'fixed' && settings.pickup_discount_value > 0 && (
-                <p className="text-xs text-midnight/60">
-                  = {formatCurrency(settings.pickup_discount_value, settings.currency)}
-                </p>
-              )}
-              {settings.pickup_discount_type === 'percent' && settings.pickup_discount_value > 0 && (
-                <p className="text-xs text-midnight/60">
-                  = {settings.pickup_discount_value}% off
-                </p>
-              )}
-            </div>
-            <div className="space-y-2">
-              <Label>{settings.pickup_discount_enabled ? 'Pickup discount enabled' : 'Pickup discount disabled'}</Label>
-              <div className="pt-2">
-                <Switch
-                  checked={settings.pickup_discount_enabled}
-                  onChange={(e) => {
-                    const newValue = e.target.checked
-                    setSettings((prev) => prev ? { ...prev, pickup_discount_enabled: newValue } : null)
-                    updateSettings({ pickup_discount_enabled: newValue })
-                  }}
-                />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {/* Settings modal content moved into modal */}
 
       <Card>
         <CardHeader>
