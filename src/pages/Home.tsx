@@ -64,6 +64,9 @@ export default function HomePage() {
     return calculateOrderTotals(items, settings, form.fulfillment_method)
   }, [form.items, settings, form.fulfillment_method, sizes])
 
+  const hasActiveItems = form.items.length > 0
+  const hasQtySelection = form.items.some((i) => i.quantity > 0)
+
   const updateQuantity = (index: number, delta: number) => {
     setForm((prev) => {
       const next = [...prev.items]
@@ -82,10 +85,14 @@ export default function HomePage() {
     // Check for missing required fields
     const missingFields: string[] = []
 
+    if (!hasActiveItems) {
+      setError('No items are available right now.')
+      return
+    }
+
     const nonZeroItems = form.items.filter((i) => i.quantity > 0)
-    const hasItems = nonZeroItems.length > 0 && nonZeroItems.every((i) => i.size_id && i.quantity > 0)
-    if (!hasItems) {
-      setError('Please add at least one item.')
+    if (nonZeroItems.length === 0) {
+      setError('Please select at least one item.')
       return
     }
     
@@ -178,8 +185,14 @@ export default function HomePage() {
               </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-3">
-                <div className="space-y-2">
-                  {form.items.map((item, idx) => {
+                {!hasActiveItems && (
+                  <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-4 text-sm text-midnight/80">
+                    No items are available to order right now. Please check back soon.
+                  </div>
+                )}
+                {hasActiveItems && (
+                  <div className="space-y-2">
+                    {form.items.map((item, idx) => {
                     const size = sizes.find((s) => s.id === item.size_id)
                     const available = size?.available_qty ?? 0
                     return (
@@ -262,8 +275,9 @@ export default function HomePage() {
                         </div>
                       </div>
                     )
-                  })}
-                </div>
+                    })}
+                  </div>
+                )}
               </div>
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
@@ -372,7 +386,7 @@ export default function HomePage() {
                   <CheckCircle2 size={16} /> {message}
                 </div>
               )}
-              <Button className="w-full" size="lg" onClick={handleCheckout} disabled={loading}>
+              <Button className="w-full" size="lg" onClick={handleCheckout} disabled={loading || !hasQtySelection}>
                 {loading ? 'Creating order...' : 'Place order'}
               </Button>
               <p className="text-xs text-midnight/60">
