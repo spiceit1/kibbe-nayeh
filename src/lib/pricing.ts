@@ -1,12 +1,11 @@
 import type { FulfillmentMethod, ProductSize, Settings } from './types'
 
 export function calculateOrderTotals(
-  size: ProductSize | undefined,
+  items: { size: ProductSize; quantity: number }[],
   settings: Settings,
   fulfillment: FulfillmentMethod,
-  quantity: number,
 ) {
-  const base = (size?.price_cents ?? 0) * quantity
+  const base = items.reduce((sum, item) => sum + (item.size?.price_cents ?? 0) * item.quantity, 0)
   const deliveryFee = fulfillment === 'delivery' ? settings.delivery_fee_cents : 0
 
   const pickupDiscount =

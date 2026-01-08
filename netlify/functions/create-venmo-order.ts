@@ -28,21 +28,43 @@ export const handler: Handler = async (event) => {
   try {
     const payload = JSON.parse(event.body || '{}') as CheckoutPayload
     
-    // Validate size availability
-    const { data: size, error: sizeError } = await supabase
+    // Validate items and availability
+    if (!payload.items || !Array.isArray(payload.items) || payload.items.length === 0) {
+      throw new Error('No items provided')
+    }
+
+    const sizeIds = payload.items.map((i) => i.size_id)
+    const { data: sizes, error: sizesError } = await supabase
       .from('product_sizes')
       .select('*')
-      .eq('id', payload.size_id)
+      .in('id', sizeIds)
       .eq('is_active', true)
-      .maybeSingle()
-    if (sizeError || !size) throw new Error('Size unavailable')
-    if (size.available_qty < payload.quantity) throw new Error('Insufficient quantity available')
+
+    if (sizesError) throw new Error('Failed to load sizes')
+    if (!sizes || sizes.length !== sizeIds.length) throw new Error('Some sizes unavailable')
+
+    // Map sizes for quick lookup
+    const sizeMap = new Map(sizes.map((s) => [s.id, s]))
+
+    // Ensure availability
+    for (const item of payload.items) {
+      const size = sizeMap.get(item.size_id)
+      if (!size) throw new Error('Size unavailable')
+      if (size.available_qty < item.quantity) throw new Error(`Insufficient quantity for ${size.name}`)
+    }
 
     // Get settings
     const { data: settings } = await supabase.from('settings').select('*').limit(1).maybeSingle()
     if (!settings?.venmo_address) throw new Error('Venmo address not configured')
     
-    const totals = calculateOrderTotals(size, settings, payload.fulfillment_method, payload.quantity)
+    const totals = calculateOrderTotals(
+      payload.items.map((item) => ({
+        size: sizeMap.get(item.size_id)!,
+        quantity: item.quantity,
+      })),
+      settings,
+      payload.fulfillment_method,
+    )
 
     // Find or create customer
     const { data: existingCustomer } = await supabase
@@ -98,15 +120,19 @@ export const handler: Handler = async (event) => {
     if (orderError || !order) throw new Error('Failed to create order')
 
     // Create order items
-    const { error: itemsError } = await supabase.from('order_items').insert({
-      order_id: order.id,
-      size_id: size.id,
-      size_name: size.name,
-      unit_label: size.unit_label,
-      quantity: payload.quantity,
-      price_cents: size.price_cents,
+    const orderItemsPayload = payload.items.map((item) => {
+      const size = sizeMap.get(item.size_id)!
+      return {
+        order_id: order.id,
+        size_id: size.id,
+        size_name: size.name,
+        unit_label: size.unit_label,
+        quantity: item.quantity,
+        price_cents: size.price_cents,
+      }
     })
 
+    const { error: itemsError } = await supabase.from('order_items').insert(orderItemsPayload)
     if (itemsError) throw new Error('Failed to create order items')
 
     // Create status history
@@ -117,10 +143,13 @@ export const handler: Handler = async (event) => {
     })
 
     // Decrement available quantity
-    await supabase
-      .from('product_sizes')
-      .update({ available_qty: Math.max(0, size.available_qty - payload.quantity) })
-      .eq('id', size.id)
+    for (const item of payload.items) {
+      const size = sizeMap.get(item.size_id)!
+      await supabase
+        .from('product_sizes')
+        .update({ available_qty: Math.max(0, size.available_qty - item.quantity) })
+        .eq('id', size.id)
+    }
 
     // Prepare order details for emails/SMS
     const orderNumber = order.order_number?.toString() || order.id.slice(0, 8).toUpperCase()
@@ -156,7 +185,17 @@ export const handler: Handler = async (event) => {
               
               <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
                 <h3 style="margin-top: 0;">Order #${orderNumber}</h3>
-                <p><strong>Item:</strong> ${size.name} x ${payload.quantity}</p>
+                <p><strong>Items:</strong></p>
+                <ul>
+                  ${orderItemsPayload
+                    .map(
+                      (oi) =>
+                        `<li>${oi.size_name} x ${oi.quantity} — $${((oi.price_cents * oi.quantity) / 100).toFixed(
+                          2,
+                        )}</li>`,
+                    )
+                    .join('')}
+                </ul>
                 <p><strong>Fulfillment:</strong> ${payload.fulfillment_method === 'delivery' ? 'Delivery' : 'Pickup'}</p>
                 ${deliveryAddress ? `<p><strong>Delivery Address:</strong><br>${deliveryAddress}</p>` : ''}
                 ${payload.notes ? `<p><strong>Notes:</strong> ${payload.notes}</p>` : ''}

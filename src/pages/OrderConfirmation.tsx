@@ -143,7 +143,9 @@ export default function OrderConfirmationPage() {
               {order.items.map((item, idx) => (
                 <div key={idx} className="flex items-center justify-between border-b border-neutral-100 pb-2">
                   <div>
-                    <div className="font-semibold text-midnight">{item.name}</div>
+                    <div className="font-semibold text-midnight">
+                      {item.name} — {formatCurrency(item.price_cents, order.currency)}
+                    </div>
                     <div className="text-xs text-midnight/60">Qty {item.quantity}</div>
                   </div>
                   <div className="font-semibold">{formatCurrency(item.price_cents * item.quantity, order.currency)}</div>

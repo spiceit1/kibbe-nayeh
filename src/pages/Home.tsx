@@ -13,8 +13,7 @@ import { calculateOrderTotals, formatCurrency } from '../lib/pricing'
 import type { CheckoutPayload, FulfillmentMethod, ProductSize, Settings } from '../lib/types'
 
 const emptyForm = {
-  size_id: sampleSizes[0]?.id ?? '',
-  quantity: 1,
+  items: [{ size_id: sampleSizes[0]?.id ?? '', quantity: 1 }],
   fulfillment_method: 'delivery' as FulfillmentMethod,
   name: '',
   email: '',
@@ -44,18 +43,22 @@ export default function HomePage() {
       ])
       if (sizeData && sizeData.length) {
         setSizes(sizeData)
-        setForm((prev) => ({ ...prev, size_id: sizeData[0].id }))
+        setForm((prev) => ({ ...prev, items: [{ size_id: sizeData[0].id, quantity: 1 }] }))
       }
       if (settingsData) setSettings(settingsData as Settings)
     }
     loadData()
   }, [])
 
-  const selectedSize = useMemo(() => sizes.find((s) => s.id === form.size_id), [sizes, form.size_id])
-  const totals = useMemo(
-    () => calculateOrderTotals(selectedSize, settings, form.fulfillment_method, form.quantity),
-    [selectedSize, settings, form.fulfillment_method, form.quantity],
-  )
+  const totals = useMemo(() => {
+    const items = form.items
+      .map((item) => {
+        const size = sizes.find((s) => s.id === item.size_id)
+        return size ? { size, quantity: item.quantity } : null
+      })
+      .filter(Boolean) as { size: ProductSize; quantity: number }[]
+    return calculateOrderTotals(items, settings, form.fulfillment_method)
+  }, [form.items, settings, form.fulfillment_method, sizes])
 
   const handleCheckout = async () => {
     setError(null)
@@ -64,8 +67,9 @@ export default function HomePage() {
     // Check for missing required fields
     const missingFields: string[] = []
     
-    if (!selectedSize) {
-      setError('Please select a size.')
+    const hasItems = form.items.length > 0 && form.items.every((i) => i.size_id && i.quantity > 0)
+    if (!hasItems) {
+      setError('Please add at least one item.')
       return
     }
     
@@ -94,8 +98,7 @@ export default function HomePage() {
     setLoading(true)
     try {
       const payload: CheckoutPayload = {
-        size_id: form.size_id,
-        quantity: form.quantity,
+        items: form.items,
         fulfillment_method: form.fulfillment_method,
         customer: {
           name: form.name,
@@ -158,32 +161,90 @@ export default function HomePage() {
               <CardDescription>Choose your size, fulfillment method, and quantity.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label>Size</Label>
-                  <Select
-                    value={form.size_id}
-                    onChange={(e) => setForm((prev) => ({ ...prev, size_id: e.target.value }))}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label>Items</Label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      setForm((prev) => ({
+                        ...prev,
+                        items: [...prev.items, { size_id: sizes[0]?.id ?? '', quantity: 1 }],
+                      }))
+                    }
                   >
-                    {sizes.filter((s) => s.is_active).map((size) => (
-                      <option key={size.id} value={size.id}>
-                        {size.name} — {formatCurrency(size.price_cents, settings.currency)}
-                      </option>
-                    ))}
-                  </Select>
-                  <p className="text-xs text-midnight/60">Available: {selectedSize?.available_qty ?? 0}</p>
+                    + Add item
+                  </Button>
                 </div>
                 <div className="space-y-2">
-                  <Label>Quantity</Label>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={selectedSize?.available_qty ?? 10}
-                    value={form.quantity}
-                    onChange={(e) =>
-                      setForm((prev) => ({ ...prev, quantity: Math.max(1, Number(e.target.value) || 1) }))
-                    }
-                  />
+                  {form.items.map((item, idx) => {
+                    const size = sizes.find((s) => s.id === item.size_id)
+                    return (
+                      <div
+                        key={`${item.size_id}-${idx}`}
+                        className="grid gap-3 rounded-lg border border-neutral-200 p-3 md:grid-cols-[2fr,1fr,auto]"
+                      >
+                        <div className="space-y-1">
+                          <Label className="text-xs text-midnight/70">Size</Label>
+                          <Select
+                            className="min-w-[260px]"
+                            value={item.size_id}
+                            onChange={(e) =>
+                              setForm((prev) => {
+                                const next = [...prev.items]
+                                next[idx] = { ...next[idx], size_id: e.target.value }
+                                return { ...prev, items: next }
+                              })
+                            }
+                          >
+                            {sizes.filter((s) => s.is_active).map((s) => (
+                              <option key={s.id} value={s.id}>
+                                {s.name} — {formatCurrency(s.price_cents, settings.currency)}
+                              </option>
+                            ))}
+                          </Select>
+                          <p className="text-xs text-midnight/60">Available: {size?.available_qty ?? 0}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-midnight/70">Quantity</Label>
+                          <Input
+                            type="number"
+                            min={1}
+                            max={size?.available_qty ?? 10}
+                            value={item.quantity}
+                            onChange={(e) =>
+                              setForm((prev) => {
+                                const next = [...prev.items]
+                                next[idx] = {
+                                  ...next[idx],
+                                  quantity: Math.max(1, Number(e.target.value) || 1),
+                                }
+                                return { ...prev, items: next }
+                              })
+                            }
+                          />
+                        </div>
+                        <div className="flex items-end justify-end">
+                          {form.items.length > 1 && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              onClick={() =>
+                                setForm((prev) => ({
+                                  ...prev,
+                                  items: prev.items.filter((_, i) => i !== idx),
+                                }))
+                              }
+                            >
+                              Remove
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
               <div className="grid gap-4 md:grid-cols-2">

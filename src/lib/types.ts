@@ -41,9 +41,13 @@ export interface CustomerPayload {
   postal_code?: string
 }
 
-export interface CheckoutPayload {
+export interface CheckoutItemPayload {
   size_id: string
   quantity: number
+}
+
+export interface CheckoutPayload {
+  items: CheckoutItemPayload[]
   fulfillment_method: FulfillmentMethod
   customer: CustomerPayload
   notes?: string

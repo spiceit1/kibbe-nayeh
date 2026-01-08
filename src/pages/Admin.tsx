@@ -2158,7 +2158,8 @@ export default function AdminPage() {
                         {order.order_items.map((item, idx) => (
                           <div key={idx} className="flex items-center justify-between text-sm text-midnight/80">
                             <span>
-                              {item.size_name} × {item.quantity}
+                              {item.size_name} — {formatCurrency(item.price_cents, settings?.currency || 'USD')} ×{' '}
+                              {item.quantity}
                             </span>
                             <span>{formatCurrency(item.price_cents * item.quantity, settings?.currency || 'USD')}</span>
                           </div>
