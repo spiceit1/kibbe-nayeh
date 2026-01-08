@@ -831,6 +831,8 @@ export default function AdminPage() {
 
       removeToast(toastId)
       showToast('✓ Orders deleted', 'success')
+      // Refresh dashboard to update customers/order counts
+      fetchDashboard()
     } catch (err) {
       removeToast(toastId)
       setError((err as Error).message)

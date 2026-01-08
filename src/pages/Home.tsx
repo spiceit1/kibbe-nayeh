@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AlertCircle, CheckCircle2, Truck, Utensils, Phone, Mail, MapPin } from 'lucide-react'
+import { AlertCircle, CheckCircle2, Truck, Utensils, Phone, Mail, MapPin, Trash2, Minus, Plus, ShoppingCart } from 'lucide-react'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Select } from '../components/ui/select'
@@ -13,7 +13,7 @@ import { calculateOrderTotals, formatCurrency } from '../lib/pricing'
 import type { CheckoutPayload, FulfillmentMethod, ProductSize, Settings } from '../lib/types'
 
 const emptyForm = {
-  items: [{ size_id: sampleSizes[0]?.id ?? '', quantity: 1 }],
+  items: [] as { size_id: string; quantity: number }[],
   fulfillment_method: 'delivery' as FulfillmentMethod,
   name: '',
   email: '',
@@ -43,7 +43,10 @@ export default function HomePage() {
       ])
       if (sizeData && sizeData.length) {
         setSizes(sizeData)
-        setForm((prev) => ({ ...prev, items: [{ size_id: sizeData[0].id, quantity: 1 }] }))
+        setForm((prev) => ({
+          ...prev,
+          items: sizeData.filter((s) => s.is_active).map((s) => ({ size_id: s.id, quantity: 0 })),
+        }))
       }
       if (settingsData) setSettings(settingsData as Settings)
     }
@@ -52,6 +55,7 @@ export default function HomePage() {
 
   const totals = useMemo(() => {
     const items = form.items
+      .filter((i) => i.quantity > 0)
       .map((item) => {
         const size = sizes.find((s) => s.id === item.size_id)
         return size ? { size, quantity: item.quantity } : null
@@ -60,14 +64,26 @@ export default function HomePage() {
     return calculateOrderTotals(items, settings, form.fulfillment_method)
   }, [form.items, settings, form.fulfillment_method, sizes])
 
+  const updateQuantity = (index: number, delta: number) => {
+    setForm((prev) => {
+      const next = [...prev.items]
+      const size = sizes.find((s) => s.id === next[index].size_id)
+      const max = size?.available_qty ?? 99
+      const newQty = Math.min(Math.max(0, next[index].quantity + delta), max)
+      next[index] = { ...next[index], quantity: newQty }
+      return { ...prev, items: next }
+    })
+  }
+
   const handleCheckout = async () => {
     setError(null)
     setMessage(null)
     
     // Check for missing required fields
     const missingFields: string[] = []
-    
-    const hasItems = form.items.length > 0 && form.items.every((i) => i.size_id && i.quantity > 0)
+
+    const nonZeroItems = form.items.filter((i) => i.quantity > 0)
+    const hasItems = nonZeroItems.length > 0 && nonZeroItems.every((i) => i.size_id && i.quantity > 0)
     if (!hasItems) {
       setError('Please add at least one item.')
       return
@@ -98,7 +114,7 @@ export default function HomePage() {
     setLoading(true)
     try {
       const payload: CheckoutPayload = {
-        items: form.items,
+        items: nonZeroItems,
         fulfillment_method: form.fulfillment_method,
         customer: {
           name: form.name,
@@ -156,38 +172,22 @@ export default function HomePage() {
         </div>
         <div id="order" className="space-y-4">
           <Card>
-            <CardHeader>
-              <CardTitle>Build your order</CardTitle>
-              <CardDescription>Choose your size, fulfillment method, and quantity.</CardDescription>
-            </CardHeader>
+              <CardHeader className="space-y-1">
+                <CardTitle>Build your order</CardTitle>
+                <CardDescription>Choose your items, quantity, and fulfillment method</CardDescription>
+              </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Label>Items</Label>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      setForm((prev) => ({
-                        ...prev,
-                        items: [...prev.items, { size_id: sizes[0]?.id ?? '', quantity: 1 }],
-                      }))
-                    }
-                  >
-                    + Add item
-                  </Button>
-                </div>
                 <div className="space-y-2">
                   {form.items.map((item, idx) => {
                     const size = sizes.find((s) => s.id === item.size_id)
+                    const available = size?.available_qty ?? 0
                     return (
                       <div
                         key={`${item.size_id}-${idx}`}
-                        className="grid gap-3 rounded-lg border border-neutral-200 p-3 md:grid-cols-[2fr,1fr,auto]"
+                        className="grid gap-3 rounded-lg border border-neutral-200 p-3 md:grid-cols-[2fr,1fr]"
                       >
                         <div className="space-y-1">
-                          <Label className="text-xs text-midnight/70">Size</Label>
                           <Select
                             className="min-w-[260px]"
                             value={item.size_id}
@@ -205,41 +205,59 @@ export default function HomePage() {
                               </option>
                             ))}
                           </Select>
-                          <p className="text-xs text-midnight/60">Available: {size?.available_qty ?? 0}</p>
+                          {available <= 0 ? (
+                            <p className="text-sm font-semibold text-red-600">SOLD OUT</p>
+                          ) : available === 1 ? (
+                            <p className="text-sm font-semibold text-pomegranate">Last one!</p>
+                          ) : (
+                            <p className="text-xs text-midnight/60">Available: {available}</p>
+                          )}
                         </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs text-midnight/70">Quantity</Label>
-                          <Input
-                            type="number"
-                            min={1}
-                            max={size?.available_qty ?? 10}
-                            value={item.quantity}
-                            onChange={(e) =>
-                              setForm((prev) => {
-                                const next = [...prev.items]
-                                next[idx] = {
-                                  ...next[idx],
-                                  quantity: Math.max(1, Number(e.target.value) || 1),
-                                }
-                                return { ...prev, items: next }
-                              })
-                            }
-                          />
-                        </div>
-                        <div className="flex items-end justify-end">
-                          {form.items.length > 1 && (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              onClick={() =>
-                                setForm((prev) => ({
-                                  ...prev,
-                                  items: prev.items.filter((_, i) => i !== idx),
-                                }))
-                              }
-                            >
-                              Remove
-                            </Button>
+                        <div className="space-y-1 flex flex-col items-stretch">
+                          {item.quantity === 0 ? (
+                            <div title={available <= 0 ? 'Sold Out' : undefined}>
+                              <Button
+                                className="h-12 justify-center w-full"
+                                onClick={() => updateQuantity(idx, +1)}
+                                disabled={available <= 0}
+                              >
+                                <ShoppingCart size={18} className="mr-2" />
+                                Add to Cart
+                              </Button>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="flex h-12 items-stretch overflow-hidden rounded-lg border border-neutral-300 bg-neutral-50">
+                                <button
+                                  type="button"
+                                  aria-label={item.quantity <= 1 ? 'Remove item' : 'Decrease quantity'}
+                                  className={`flex w-12 items-center justify-center border-r border-neutral-200 transition ${
+                                    item.quantity <= 1
+                                      ? 'text-red-500 hover:bg-red-50'
+                                      : 'text-midnight/80 hover:bg-neutral-100'
+                                  } disabled:text-neutral-300 disabled:hover:bg-transparent`}
+                                  onClick={() => updateQuantity(idx, item.quantity <= 1 ? -item.quantity : -1)}
+                                  disabled={item.quantity === 0}
+                                >
+                                  {item.quantity <= 1 ? <Trash2 size={18} /> : <Minus size={18} />}
+                                </button>
+                                <div className="flex-1 flex items-center justify-center text-lg font-semibold text-midnight bg-white">
+                                  {item.quantity}
+                                </div>
+                                <button
+                                  type="button"
+                                  aria-label="Increase quantity"
+                                  className="flex w-12 items-center justify-center border-l border-neutral-200 text-midnight/80 transition hover:bg-neutral-100 disabled:text-neutral-300 disabled:hover:bg-transparent"
+                                  onClick={() => updateQuantity(idx, +1)}
+                                  disabled={available <= 0 || item.quantity >= available}
+                                >
+                                  <Plus size={18} />
+                                </button>
+                              </div>
+                              {available > 0 && item.quantity >= available && (
+                                <p className="text-xs text-neutral-600 text-center">Max quantity reached</p>
+                              )}
+                            </>
                           )}
                         </div>
                       </div>
