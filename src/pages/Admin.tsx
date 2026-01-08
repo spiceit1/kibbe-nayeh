@@ -115,6 +115,7 @@ export default function AdminPage() {
   const [bulkUpdating, setBulkUpdating] = useState(false)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [showSettingsModal, setShowSettingsModal] = useState(false)
+  const [paymentUpdatingIds, setPaymentUpdatingIds] = useState<Set<string>>(new Set())
   
   const showToast = (message: string, type: 'saving' | 'success' | 'error') => {
     const id = Math.random().toString(36).substring(7)
@@ -591,6 +592,33 @@ export default function AdminPage() {
     }
   }
 
+  const updatePaymentStatus = async (orderId: string, payment_status: 'paid' | 'pending') => {
+    const adminEmail = sessionStorage.getItem('admin_email')
+    if (!adminEmail) {
+      setError('Admin session not found')
+      showToast('Error: Admin session not found', 'error')
+      return
+    }
+
+    setPaymentUpdatingIds((prev) => new Set(prev).add(orderId))
+    // Optimistic update
+    setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, payment_status } : o)))
+
+    try {
+      await updatePaymentForOrders([orderId], payment_status, adminEmail, false)
+    } catch (err) {
+      setError((err as Error).message)
+      showToast(`Error: ${(err as Error).message}`, 'error')
+      fetchDashboard()
+    } finally {
+      setPaymentUpdatingIds((prev) => {
+        const next = new Set(prev)
+        next.delete(orderId)
+        return next
+      })
+    }
+  }
+
   const updateSettings = async (updates: Partial<Settings>) => {
     const client = supabase
     if (!client || !settings) return
@@ -637,26 +665,26 @@ export default function AdminPage() {
   const updateOrderStatus = async (orderId: string, status: OrderStatus) => {
     const client = supabase
     if (!client) return
-    
+
     const adminEmail = sessionStorage.getItem('admin_email')
     if (!adminEmail) {
       setError('Admin session not found')
       showToast('Error: Admin session not found', 'error')
       return
     }
-    
+
     const toastId = showToast('Updating order...', 'saving')
-    
+
     // Optimistically update local state
-    setOrders((prev) => prev.map((o) => o.id === orderId ? { ...o, status } : o))
-    
+    setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, status } : o)))
+
     // Use RPC function to update order status (bypasses RLS)
     const { data: updatedOrder, error: updateError } = await client.rpc('update_order_status', {
       admin_email: adminEmail,
       order_id: orderId,
       new_status: status,
     })
-    
+
     if (updateError) {
       removeToast(toastId)
       setError(updateError.message)
@@ -668,7 +696,7 @@ export default function AdminPage() {
       showToast('✓ Order updated', 'success')
       // Update local state with the returned order data
       if (updatedOrder) {
-        setOrders((prev) => prev.map((o) => o.id === orderId ? { ...o, status } : o))
+        setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, status } : o)))
       } else {
         // Fallback: refetch dashboard
         fetchDashboard()
@@ -692,31 +720,37 @@ export default function AdminPage() {
     setBulkUpdating(true)
 
     // Optimistic update
-    setOrders((prev) => prev.map((o) => (selectedOrderIds.includes(o.id) ? { ...o, status: bulkStatus } : o)))
-
-    const results = await Promise.all(
-      selectedOrderIds.map((orderId) =>
-        client.rpc('update_order_status', {
-          admin_email: adminEmail,
-          order_id: orderId,
-          new_status: bulkStatus,
-        })
-      )
+    setOrders((prev) =>
+      prev.map((o) => (selectedOrderIds.includes(o.id) ? { ...o, status: bulkStatus } : o)),
     )
 
-    const errored = results.find((r) => r.error)
-    removeToast(toastId)
-    setBulkUpdating(false)
+    try {
+      const results = await Promise.all(
+        selectedOrderIds.map((orderId) =>
+          client.rpc('update_order_status', {
+            admin_email: adminEmail,
+            order_id: orderId,
+            new_status: bulkStatus,
+          }),
+        ),
+      )
 
-    if (errored?.error) {
-      setError(errored.error.message)
-      showToast(`Error: ${errored.error.message}`, 'error')
-      fetchDashboard()
-    } else {
+      const errored = results.find((r) => r.error)
+      if (errored?.error) {
+        throw new Error(errored.error.message)
+      }
+
+      removeToast(toastId)
       showToast('✓ Orders updated', 'success')
+    } catch (err) {
+      removeToast(toastId)
+      setError((err as Error).message)
+      showToast(`Error: ${(err as Error).message}`, 'error')
+      fetchDashboard()
+    } finally {
+      setBulkUpdating(false)
+      setShowBulkStatusModal(false)
     }
-
-    setShowBulkStatusModal(false)
   }
 
   const toggleSelectOrder = (orderId: string) => {
@@ -738,6 +772,34 @@ export default function AdminPage() {
       visibleOrders.find((o) => o.id === selectedOrderIds[0]) || orders.find((o) => o.id === selectedOrderIds[0])
     setBulkStatus((firstOrder?.status as OrderStatus) || 'Outstanding')
     setShowBulkStatusModal(true)
+  }
+
+  const updatePaymentForOrders = async (
+    orderIds: string[],
+    payment_status: 'paid' | 'pending',
+    adminEmail: string,
+    showToastMessages = true,
+  ) => {
+    const toastId = showToastMessages ? showToast('Updating payment...', 'saving') : null
+
+    try {
+      const res = await fetch('/.netlify/functions/update-payment-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderIds, payment_status, adminEmail }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || 'Failed to update payment')
+      }
+      if (toastId) {
+        removeToast(toastId)
+        showToast('✓ Payment updated', 'success')
+      }
+    } catch (err) {
+      if (toastId) removeToast(toastId)
+      throw err
+    }
   }
 
   const deleteSelectedOrders = async () => {
@@ -2022,11 +2084,28 @@ export default function AdminPage() {
                           <p className="text-sm text-midnight/60">Total</p>
                           <p className="font-semibold">{formatCurrency(order.total_cents, settings?.currency || 'USD')}</p>
                         </div>
-                        <div>
-                          <p className="text-sm text-midnight/60">Payment</p>
-                          <Badge variant={order.payment_status === 'paid' ? 'success' : 'warning'}>
-                            {order.payment_status}
-                          </Badge>
+                        <div className="space-y-2">
+                          <Label>Payment</Label>
+                          <button
+                            type="button"
+                            disabled={paymentUpdatingIds.has(order.id)}
+                            onClick={() =>
+                              updatePaymentStatus(order.id, order.payment_status === 'paid' ? 'pending' : 'paid')
+                            }
+                            className={`relative flex h-9 w-28 items-center rounded-full border transition ${
+                              order.payment_status === 'paid'
+                                ? 'border-emerald-500 bg-emerald-500/15 justify-end'
+                                : 'border-amber-400 bg-amber-200/40 justify-start'
+                            } ${paymentUpdatingIds.has(order.id) ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer hover:brightness-105'}`}
+                          >
+                            <span
+                              className={`inline-flex h-7 px-3 items-center justify-center rounded-full bg-white text-xs font-semibold shadow-sm transition ${
+                                order.payment_status === 'paid' ? 'text-emerald-600' : 'text-amber-700'
+                              }`}
+                            >
+                              {order.payment_status === 'paid' ? 'Paid' : 'Pending'}
+                            </span>
+                          </button>
                         </div>
                         <div className="space-y-2">
                           <Label>Status</Label>
