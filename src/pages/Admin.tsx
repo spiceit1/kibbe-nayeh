@@ -1219,13 +1219,6 @@ export default function AdminPage() {
             className="rounded-xl border border-neutral-200 hover:border-pomegranate/50 hover:bg-pomegranate/5 transition"
             onClick={() => setShowPasswordReset(true)}
           >
-            Reset Password
-          </Button>
-          <Button
-            variant="outline"
-            className="rounded-xl border border-neutral-200 hover:border-pomegranate/50 hover:bg-pomegranate/5 transition"
-            onClick={handleLogout}
-          >
             Sign out: {sessionStorage.getItem('admin_email') || email}
           </Button>
         </div>
@@ -1338,6 +1331,32 @@ export default function AdminPage() {
               </Button>
             </div>
             <div className="max-h-[80vh] overflow-y-auto p-6 space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Account</CardTitle>
+                  <CardDescription>Manage your admin access</CardDescription>
+                </CardHeader>
+                <CardContent className="flex flex-wrap gap-3">
+                  <Button
+                    variant="outline"
+                    className="rounded-xl border border-neutral-200 hover:border-pomegranate/50 hover:bg-pomegranate/5 transition"
+                    onClick={() => {
+                      setShowPasswordReset(true)
+                      setShowSettingsModal(false)
+                    }}
+                  >
+                    Reset Password
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="rounded-xl border border-neutral-200 hover:border-pomegranate/50 hover:bg-pomegranate/5 transition"
+                    onClick={handleLogout}
+                  >
+                    Sign out: {sessionStorage.getItem('admin_email') || email}
+                  </Button>
+                </CardContent>
+              </Card>
+
               {currentUser && (
                 <Card>
                   <CardHeader>
