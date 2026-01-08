@@ -1004,6 +1004,10 @@ export default function AdminPage() {
   const visibleOrderIds = useMemo(() => filteredOrders.map((o) => o.id), [filteredOrders])
   const allVisibleSelected = visibleOrderIds.length > 0 && visibleOrderIds.every((id) => selectedOrderIds.includes(id))
   const selectedCount = selectedOrderIds.length
+  const customersWithOrders = useMemo(
+    () => customers.filter((c) => (c.order_count ?? 0) > 0),
+    [customers],
+  )
 
   if (!supabase) {
     return (
@@ -2197,30 +2201,34 @@ export default function AdminPage() {
           <CardDescription>Deduplicated by email/phone. Click to view orders.</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-2">
-          {customers.map((c) => (
-            <div 
-              key={c.id} 
-              className="rounded-lg border border-neutral-200 p-4 cursor-pointer hover:border-pomegranate hover:bg-pomegranate/5 transition-colors"
-              onClick={() => handleCustomerClick(c)}
-            >
-              <div className="font-semibold text-midnight">{c.name}</div>
-              <div className="text-sm text-midnight/70">{c.email}</div>
-              <div className="text-sm text-midnight/60">{c.phone}</div>
-              <div className="mt-2 space-y-1">
-                {c.order_count !== undefined && (
-                  <div className="text-sm font-medium text-midnight/80">
-                    Orders: <span className="text-pomegranate">{c.order_count}</span>
-                  </div>
-                )}
-                {c.total_spend && (
-                  <div className="text-sm text-midnight/80">Total: {formatCurrency(c.total_spend, settings?.currency || 'USD')}</div>
-                )}
-                {c.last_order_date && (
-                  <div className="text-xs text-midnight/60">Last order: {new Date(c.last_order_date).toLocaleDateString()}</div>
-                )}
+          {customersWithOrders.length === 0 ? (
+            <p className="text-sm text-midnight/60">No customers with orders yet.</p>
+          ) : (
+            customersWithOrders.map((c) => (
+              <div 
+                key={c.id} 
+                className="rounded-lg border border-neutral-200 p-4 cursor-pointer hover:border-pomegranate hover:bg-pomegranate/5 transition-colors"
+                onClick={() => handleCustomerClick(c)}
+              >
+                <div className="font-semibold text-midnight">{c.name}</div>
+                <div className="text-sm text-midnight/70">{c.email}</div>
+                <div className="text-sm text-midnight/60">{c.phone}</div>
+                <div className="mt-2 space-y-1">
+                  {c.order_count !== undefined && (
+                    <div className="text-sm font-medium text-midnight/80">
+                      Orders: <span className="text-pomegranate">{c.order_count}</span>
+                    </div>
+                  )}
+                  {c.total_spend && (
+                    <div className="text-sm text-midnight/80">Total: {formatCurrency(c.total_spend, settings?.currency || 'USD')}</div>
+                  )}
+                  {c.last_order_date && (
+                    <div className="text-xs text-midnight/60">Last order: {new Date(c.last_order_date).toLocaleDateString()}</div>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            ))
+          )}
         </CardContent>
       </Card>
 
