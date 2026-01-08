@@ -1021,7 +1021,6 @@ export default function AdminPage() {
     }
   }, [orders, dateRange, customStartDate, customEndDate])
 
-  const outstandingOrders = orders.filter((o) => o.status === 'Outstanding')
   const metrics = useMemo(() => {
     const revenue = filteredOrders.reduce((sum, o) => sum + o.total_cents, 0)
     const avg = filteredOrders.length ? revenue / filteredOrders.length : 0
@@ -2441,111 +2440,6 @@ export default function AdminPage() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Outstanding Orders</CardTitle>
-          <CardDescription>Highlight urgent items</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {outstandingOrders.map((o) => (
-            <div key={o.id} className="rounded-lg border-2 border-amber-300 bg-amber-50 p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="font-semibold text-midnight">Order #{o.id.slice(0, 8).toUpperCase()}</div>
-                  <p className="text-sm text-midnight/70">{new Date(o.created_at).toLocaleString()}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge>{o.fulfillment_method}</Badge>
-                  <Badge variant={o.payment_status === 'paid' ? 'success' : 'warning'}>{o.payment_status}</Badge>
-                  <Badge variant="warning">{o.status}</Badge>
-                </div>
-              </div>
-              
-              <div className="grid gap-4 pt-2 border-t border-amber-200 md:grid-cols-2">
-                <div className="space-y-2">
-                  <p className="text-sm font-semibold text-midnight">Customer</p>
-                  {o.customer ? (
-                    <div className="text-sm text-midnight/80">
-                      <p>{o.customer.name}</p>
-                      <p className="text-midnight/60">{o.customer.email}</p>
-                      {o.customer.phone && <p className="text-midnight/60">{o.customer.phone}</p>}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-midnight/60">No customer info</p>
-                  )}
-                </div>
-                
-                {o.fulfillment_method === 'delivery' && o.delivery_address && (
-                  <div className="space-y-2">
-                    <p className="text-sm font-semibold text-midnight">Delivery Address</p>
-                    <div className="text-sm text-midnight/80">
-                      <p>{o.delivery_address.address}</p>
-                      <p>{o.delivery_address.city}, {o.delivery_address.state} {o.delivery_address.postal_code}</p>
-                    </div>
-                  </div>
-                )}
-              </div>
-              
-              {o.order_items && o.order_items.length > 0 && (
-                <div className="space-y-2 pt-2 border-t border-amber-200">
-                  <p className="text-sm font-semibold text-midnight">Items</p>
-                  <div className="space-y-1">
-                    {o.order_items.map((item, idx) => (
-                      <div key={idx} className="flex items-center justify-between text-sm text-midnight/80">
-                        <span>{item.size_name} × {item.quantity}</span>
-                        <span>{formatCurrency(item.price_cents * item.quantity, settings?.currency || 'USD')}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              
-              <div className="space-y-1 pt-2 border-t border-amber-200 text-sm">
-                <div className="flex items-center justify-between text-midnight/80">
-                  <span>Subtotal</span>
-                  <span>{formatCurrency(o.subtotal_cents, settings?.currency || 'USD')}</span>
-                </div>
-                {o.pickup_discount_cents > 0 && (
-                  <div className="flex items-center justify-between text-olive">
-                    <span>Pickup discount</span>
-                    <span>-{formatCurrency(o.pickup_discount_cents, settings?.currency || 'USD')}</span>
-                  </div>
-                )}
-                {o.delivery_fee_cents > 0 && (
-                  <div className="flex items-center justify-between text-midnight/80">
-                    <span>Delivery fee</span>
-                    <span>{formatCurrency(o.delivery_fee_cents, settings?.currency || 'USD')}</span>
-                  </div>
-                )}
-                <div className="flex items-center justify-between pt-2 border-t border-amber-200 font-semibold text-midnight">
-                  <span>Total</span>
-                  <span>{formatCurrency(o.total_cents, settings?.currency || 'USD')}</span>
-                </div>
-              </div>
-              
-              {o.notes && (
-                <div className="pt-2 border-t border-amber-200">
-                  <p className="text-sm font-semibold text-midnight mb-1">Notes</p>
-                  <p className="text-sm text-midnight/80">{o.notes}</p>
-                </div>
-              )}
-              
-              <div className="pt-2 border-t border-amber-200">
-                <Label>Update Status</Label>
-                <Select value={o.status} onChange={(e) => updateOrderStatus(o.id, e.target.value as OrderStatus)}>
-                  <option>Outstanding</option>
-                  <option>In Progress</option>
-                  <option>Ready</option>
-                  <option>Shipped</option>
-                  <option>Picked Up</option>
-                  <option>Canceled</option>
-                </Select>
-              </div>
-            </div>
-          ))}
-          {!outstandingOrders.length && <p className="text-sm text-midnight/70">All caught up.</p>}
-        </CardContent>
-      </Card>
     </div>
   )
 }
